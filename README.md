@@ -37,6 +37,8 @@ Pipeline : Documents → Chunking → Embeddings → FAISS → Retriever → LLM
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+ 
+---
 
 ## 5️⃣ Configuration (.env)  
 
