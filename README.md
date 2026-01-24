@@ -1,10 +1,18 @@
----
-title: Assistant Academique Rag Fractions
-emoji: 🐨
-colorFrom: pink
-colorTo: green
-sdk: docker
-pinned: false
----
+@"
+# Assistant Académique — RAG Fractions 5e (Chainlit + LangChain)
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+## Objectif
+Assistant pédagogique spécialisé Fractions 5e : RAG sur corpus (PDF + Excel erreurs/remédiations) + outils (didactique, profils).
+
+## Stack
+- Chainlit
+- LangChain + langchain-openai + langchain-community
+- FAISS (vector store)
+- OpenAI (LLM + embeddings)
+- Tavily (recherche web)
+
+## Installation
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -U -r requirements.txt
