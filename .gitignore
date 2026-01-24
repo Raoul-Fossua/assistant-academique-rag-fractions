@@ -27,3 +27,13 @@ C:/faiss_fractions/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data (ne pas versionner)
+data/Students/
+data/Corpus/
+
+# Option : autoriser des exemples publics
+!data/Students/.gitkeep
+!data/Corpus/.gitkeep
+!data/Students/sample_responses.csv
+!data/Corpus/README.md
