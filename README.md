@@ -40,8 +40,7 @@ pip install -r requirements.txt
 
 ## 5️⃣ Configuration (.env)  
 
-```md
-## 🔐 Configuration
+🔐 Configuration
 
 Créer un fichier `.env` à la racine du projet (non versionné) :
 
@@ -52,10 +51,7 @@ FAISS_DIR=C:\faiss_fractions
 
 ##6️⃣ Données (section cruciale RGPD / droits)
 
-```md
-## 📁 Données
-
-Les données ne sont **pas versionnées** sur GitHub.
+📁 Données : Les données ne sont **pas versionnées** sur GitHub.
 
 Arborescence attendue :
 
@@ -68,7 +64,6 @@ Arborescence attendue :
 
 ⚠️ Les fichiers pédagogiques et les données élèves restent **strictement locales**.
 
-
 ##7️⃣ ▶️ Lancer l’application
 
 ```powershell
@@ -76,23 +71,18 @@ python -m chainlit run .\chainlit_app.py -w
 
 ---
 
-##8️⃣ État du projet  
-
-```md
-## 🚧 État du projet
+##8️⃣ 🚧 État du projet
 
 - RAG fonctionnel (PDF + Excel)
 - Agent pédagogique opérationnel
 - Interface Chainlit stable
 
-##9️⃣ 🔭 Perspectives (vision long terme)
+##9️⃣ 🔭 Perspectives (vision à court, moyen et long terme)
 - Clustering automatique des profils d’erreurs
 - Tableaux de bord enseignants
 - Extension à d’autres chapitres (proportionnalité, géométrie…)
 
 
-## 👤 Auteur
+##👤 Auteur
 
-Raoul FOSSUA TINDO  
-
-Enseignant en mathématiques – Projet développé dans le cadre du DU Sorbonne Data Analytics (Paris 1 Panthéon-Sorbonne)
+Raoul FOSSUA TINDO   ( Enseignant en mathématiques)                                                                                                                                                                                                                           Projet de fin d’étude développé dans le cadre de la Session 6 du DU Sorbonne Data Analytics (Paris 1 Panthéon-Sorbonne)
