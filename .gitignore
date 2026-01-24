@@ -1,0 +1,29 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# FAISS / vectorstores
+faiss_store/
+faiss.index
+faiss.index.meta.json
+C:/faiss_fractions/
+
+# Chainlit
+.chainlit/
+.files/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
