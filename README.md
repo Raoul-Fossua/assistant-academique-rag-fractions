@@ -86,5 +86,4 @@ python -m chainlit run .\chainlit_app.py -w
 
 
 ##👤 Auteur
-
 Raoul FOSSUA TINDO   ( Enseignant en mathématiques)                                                                                                                                                                                                                           Projet de fin d’étude développé dans le cadre de la Session 6 du DU Sorbonne Data Analytics (Paris 1 Panthéon-Sorbonne)
