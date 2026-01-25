@@ -31,22 +31,24 @@ RESPONSES_CSV = Path(os.getenv("RESPONSES_CSV", str(BASE_DIR / "data" / "student
 from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0,
-    api_key=OPENAI_API_KEY,  # LangChain récent accepte api_key
+    model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+    temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
+    api_key=OPENAI_API_KEY,
 )
 
 # ───────────────────────────── RAG ────────────────────────────────
-# Ton rag_langchain.py doit exposer `rag_chain` (callable) qui renvoie dict:
-# { "answer": str, "source_documents": List[Document] }
+# rag_langchain.py doit exposer `rag_chain(payload: dict) -> dict`
+# qui renvoie au minimum:
+#   {"answer": str, "source_documents": List[Document]}
 from rag_langchain import rag_chain
 
 # ───────────────────────────── Tools ──────────────────────────────
-from langchain.tools import tool  # outil moderne via décorateur (souvent dispo même si le reste change)
+# On utilise le décorateur @tool (stable dans LangChain).
+from langchain.tools import tool
 
 
 def _fmt_source(doc) -> str:
-    """Formate une source (pdf/excel/txt) de façon lisible."""
+    """Formate une source (pdf/excel/...) de façon lisible."""
     meta = getattr(doc, "metadata", None) or {}
     src = meta.get("source") or meta.get("file_name") or meta.get("basename") or "unknown"
     src_name = os.path.basename(str(src))
@@ -91,6 +93,12 @@ def fractions_rag(question: str) -> str:
     Répond sur les FRACTIONS (niveau 5e) uniquement à partir du corpus local (PDF + Excel).
     Retourne toujours des sources.
     """
+    # petit check utile (évite les réponses "vides" si l'utilisateur n'a pas mis les fichiers)
+    if not DOCS_DIR.exists():
+        return f"❌ Dossier corpus introuvable: {DOCS_DIR}"
+    if not PDF_PATH.exists():
+        return f"❌ PDF introuvable: {PDF_PATH}"
+
     result = rag_chain({"question": question})
     answer = (result.get("answer") or "").strip() or "Je ne sais pas."
     sources = result.get("source_documents") or []
@@ -185,7 +193,7 @@ def lookup_error_remediation(error_id: str) -> str:
 @tool
 def groups_from_csv(_: str = "") -> str:
     """
-    Pré-analyse simple : agrège les error_tags par élève (depuis responses.csv),
+    Pré-analyse simple : agrège les error_tags par élève (responses.csv),
     puis affiche les 3 tags dominants.
     """
     if not RESPONSES_CSV.exists():
@@ -209,7 +217,6 @@ def groups_from_csv(_: str = "") -> str:
         return [t.strip() for t in str(x).split("|") if t.strip()]
 
     df["tags_list"] = df["error_tags"].apply(split_tags)
-
     agg = df.groupby("student_id")["tags_list"].sum().reset_index()
     agg["top_tags"] = agg["tags_list"].apply(
         lambda L: ", ".join(pd.Series(L).value_counts().head(3).index.tolist())
@@ -220,7 +227,7 @@ def groups_from_csv(_: str = "") -> str:
         lines.append(f"- {row['student_id']} → {row['top_tags'] or '(aucune erreur taguée)'}")
 
     lines.append(
-        "\n👉 Pour un clustering (KMeans/Hiérarchique + silhouette), utilise `clustering_fractions.ipynb` "
+        "\n👉 Pour un clustering complet, utilise `clustering_fractions.ipynb` "
         "puis exporte un `groups_of_need.csv`."
     )
     return "\n".join(lines)
@@ -235,14 +242,12 @@ def web_search_tavily(query: str) -> str:
     if not TAVILY_API_KEY:
         return (
             "❌ TAVILY_API_KEY manquant dans .env.\n"
-            "➡️ Ajoute TAVILY_API_KEY=... (ou désactive l’usage de cet outil)."
+            "➡️ Ajoute TAVILY_API_KEY=... (ou ignore cet outil)."
         )
 
     from tavily import TavilyClient
 
     client = TavilyClient(api_key=TAVILY_API_KEY)
-
-    # Réponse courte & propre (pas besoin de 40 liens)
     res = client.search(
         query=query,
         search_depth="basic",
@@ -279,21 +284,16 @@ TOOLS = [
 ]
 
 # ───────────────────────────── Agent ──────────────────────────────
-# Agent moderne : create_agent (LangChain docs)
-try:
-    from langchain.agents import create_agent
-except Exception as e:
-    raise SystemExit(
-        "❌ Ton paquet `langchain` ne fournit pas `create_agent`.\n"
-        "➡️ Fais:  python -m pip install -U langchain\n"
-        f"Détail import: {e}"
-    )
+# IMPORTANT : on utilise create_agent (que tu as déjà dans ton env).
+# Zéro import AgentExecutor => fini le crash.
+from langchain.agents import create_agent
+
 
 SYSTEM_PROMPT = f"""
 Tu es un assistant pédagogique intelligent spécialisé sur les FRACTIONS (niveau 5e),
 dans le cadre d’un mémoire DU Sorbonne Data Analytics.
 
-Corpus local attendu (chemins indicatifs) :
+Corpus local attendu :
 - PDF cours: {PDF_PATH}
 - Excel erreurs: {ERREURS_XLSX}
 - Excel remédiations: {REMED_XLSX}
@@ -301,17 +301,63 @@ Corpus local attendu (chemins indicatifs) :
 Règles de décision :
 - Pour une question de cours/méthode/erreur/remédiation : utilise d’abord l’outil `fractions_rag`.
 - Pour rendre une explication plus pédagogique : utilise `didactic_check`.
-- Pour récupérer une fiche exacte via un tag : utilise `lookup_error_remediation`.
+- Pour récupérer une fiche via un `error_id` : utilise `lookup_error_remediation`.
 - Pour analyse classe : utilise `groups_from_csv`.
 - Pour une vérification web (hors corpus) : utilise `web_search_tavily` (si disponible).
 
 Règle de vérité :
-- Si l’info n’est pas dans le corpus et que la recherche web n’est pas autorisée/dispo : dis exactement « Je ne sais pas. »
+- Si l’info n’est pas dans le corpus et que la recherche web n’est pas dispo : dis exactement « Je ne sais pas. »
 - N’invente jamais de sources.
 """.strip()
 
-agent = create_agent(
-    llm,
-    TOOLS,
-    system_prompt=SYSTEM_PROMPT,
-)
+# create_agent retourne un runnable “agent” (pas besoin d’AgentExecutor)
+agent = create_agent(llm, TOOLS, system_prompt=SYSTEM_PROMPT)
+
+
+def _extract_text(result: Any) -> str:
+    """Récupère proprement du texte depuis différents formats de retour."""
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        # selon versions, la clé peut varier
+        for k in ("output", "final", "answer", "result", "text"):
+            v = result.get(k)
+            if isinstance(v, str) and v.strip():
+                return v
+        # fallback : stringify
+        return str(result)
+    # messages / objets
+    return str(result)
+
+
+def run_agent(message: str) -> str:
+    """
+    Fonction appelée par Chainlit.
+    Retourne toujours une réponse texte.
+    """
+    msg = (message or "").strip()
+    if not msg:
+        return "Écris une question 🙂"
+
+    # IMPORTANT : certaines implémentations attendent {"input": "..."}
+    # d’autres acceptent directement une string.
+    try:
+        if hasattr(agent, "invoke"):
+            try:
+                res = agent.invoke({"input": msg})
+            except Exception:
+                res = agent.invoke(msg)
+        else:
+            # fallback ultra-safe
+            return fractions_rag(msg)
+    except Exception as e:
+        # On ne laisse pas l’UI mourir
+        return (
+            "⚠️ Désolé, je n’ai pas pu générer de réponse.\n\n"
+            f"Erreur: {type(e).__name__}: {e}"
+        )
+
+    out = _extract_text(res).strip()
+    return out if out else "Désolé, je n’ai pas pu générer de réponse."
