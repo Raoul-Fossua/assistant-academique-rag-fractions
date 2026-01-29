@@ -29,8 +29,8 @@ C:/faiss_fractions/
 Thumbs.db
 
 # Data (ne pas versionner)
-data/Students/
-data/Corpus/
+data/Students/responses.csv
+data/Corpus/Cours_Fractions_5e.pdf
 
 # Option : autoriser des exemples publics
 !data/Students/.gitkeep
