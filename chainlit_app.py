@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import chainlit as cl
 
-# IMPORTANT :
-# agents.py doit exposer une fonction :
+# agents.py doit exposer :
 #   run_agent(message: str) -> str
 from agents import run_agent
 
@@ -28,7 +27,7 @@ HELP = """📌 **Aide rapide**
 - *Résume les opérations sur les fractions.*
 - *Explique “mettre au même dénominateur” avec du sens.*
 - *Pourquoi certains élèves font 1/2 + 1/3 = 2/5 ?*
-- *Donne une explication didactique de : “on multiplie en croix”.*
+- *Rends didactique : “on met au même dénominateur”.*
 - *Analyse les profils d’erreurs de ma classe (responses.csv).*
 
 🧾 Sources :
@@ -93,27 +92,21 @@ async def on_message(message: cl.Message):
         return
 
     # ── Traitement normal ─────────────────────────────────────
-    # Petit "thinking" UX
     msg = cl.Message(content="⏳ Je réfléchis…")
     await msg.send()
 
     try:
-        # run_agent est synchrone → on l’appelle tel quel
         answer = run_agent(user_text)
-
         if not answer or not answer.strip():
             answer = "Désolé, je n’ai pas pu générer de réponse."
-
         msg.content = answer
         await msg.update()
 
     except Exception as e:
-        # Erreur propre, sans crasher l’app
+        # Ne pas re-raise : on veut une app robuste
         msg.content = (
             "⚠️ **Erreur interne** pendant le traitement.\n\n"
             f"**Détail :** `{type(e).__name__}`\n"
-            "👉 Astuce : vérifie ton `.env` (clés), et que le corpus est bien présent.\n"
+            "👉 Vérifie ton `.env` (clés) + que le corpus est présent.\n"
         )
         await msg.update()
-        # Pour debug console
-        raise

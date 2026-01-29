@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -18,14 +19,40 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 
 BASE_DIR = Path(__file__).resolve().parent
 
-DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "corpus")))
+# On supporte plusieurs cas : data/Corpus, data/corpus, data/CORPUS...
+DEFAULT_DOCS_DIR = BASE_DIR / "data" / "Corpus"
+DOCS_DIR = Path(os.getenv("DOCS_DIR", str(DEFAULT_DOCS_DIR)))
+
 PDF_NAME = os.getenv("PDF_NAME", "Cours_Fractions_5e.pdf")
 PDF_PATH = DOCS_DIR / PDF_NAME
 
 ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx")))
 REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx")))
 
-RESPONSES_CSV = Path(os.getenv("RESPONSES_CSV", str(BASE_DIR / "data" / "students" / "responses.csv")))
+# responses.csv (ton arbo actuelle : data/Students/)
+DEFAULT_RESPONSES = BASE_DIR / "data" / "Students" / "responses.csv"
+RESPONSES_CSV = Path(os.getenv("RESPONSES_CSV", str(DEFAULT_RESPONSES)))
+
+# ───────────────────────────── Helpers paths ──────────────────────
+def _resolve_existing_dir(candidate: Path) -> Path:
+    """Si le dossier n'existe pas, tente de retrouver une variante de casse sur Windows."""
+    if candidate.exists():
+        return candidate
+
+    # Essaye variantes courantes
+    variants = [
+        BASE_DIR / "data" / "Corpus",
+        BASE_DIR / "data" / "corpus",
+        BASE_DIR / "data" / "CORPUS",
+    ]
+    for v in variants:
+        if v.exists():
+            return v
+
+    return candidate  # on renvoie quand même (le message d'erreur sera clair)
+
+DOCS_DIR = _resolve_existing_dir(DOCS_DIR)
+PDF_PATH = DOCS_DIR / PDF_NAME
 
 # ───────────────────────────── LLM ────────────────────────────────
 from langchain_openai import ChatOpenAI
@@ -38,24 +65,17 @@ llm = ChatOpenAI(
 
 # ───────────────────────────── RAG ────────────────────────────────
 # rag_langchain.py doit exposer `rag_chain(payload: dict) -> dict`
-# qui renvoie au minimum:
-#   {"answer": str, "source_documents": List[Document]}
+# -> {"answer": str, "source_documents": List[Document]}
 from rag_langchain import rag_chain
 
-# ───────────────────────────── Tools ──────────────────────────────
-# On utilise le décorateur @tool (stable dans LangChain).
-from langchain.tools import tool
-
-
+# ───────────────────────────── Utils sources ──────────────────────
 def _fmt_source(doc) -> str:
-    """Formate une source (pdf/excel/...) de façon lisible."""
     meta = getattr(doc, "metadata", None) or {}
     src = meta.get("source") or meta.get("file_name") or meta.get("basename") or "unknown"
     src_name = os.path.basename(str(src))
 
     doc_type = meta.get("type")
 
-    # PDF
     if doc_type == "pdf" and meta.get("page") is not None:
         try:
             page = int(meta["page"]) + 1
@@ -63,7 +83,6 @@ def _fmt_source(doc) -> str:
             page = meta["page"]
         return f"{src_name}:{page}"
 
-    # Excel
     if doc_type == "excel":
         sheet = meta.get("sheet", "sheet?")
         row = meta.get("row", None)
@@ -87,17 +106,24 @@ def _sources_block(source_documents: List[Any]) -> str:
     return "Sources: " + " ; ".join(f"[{r}]" for r in refs)
 
 
-@tool
+def _missing_corpus_message() -> str:
+    return (
+        "❌ **Corpus introuvable / incomplet**\n\n"
+        f"- Dossier attendu : `{DOCS_DIR}`\n"
+        f"- PDF attendu : `{PDF_PATH}`\n"
+        f"- Excel erreurs : `{ERREURS_XLSX}`\n"
+        f"- Excel remédiations : `{REMED_XLSX}`\n\n"
+        "✅ Vérifie :\n"
+        "1) que `data/Corpus/` existe bien\n"
+        "2) que les fichiers PDF/XLSX sont dedans\n"
+        "3) que tes variables `.env` (DOCS_DIR/PDF_NAME/ERREURS_XLSX/REMED_XLSX) correspondent.\n"
+    )
+
+# ───────────────────────────── Tools “maison” ─────────────────────
 def fractions_rag(question: str) -> str:
-    """
-    Répond sur les FRACTIONS (niveau 5e) uniquement à partir du corpus local (PDF + Excel).
-    Retourne toujours des sources.
-    """
-    # petit check utile (évite les réponses "vides" si l'utilisateur n'a pas mis les fichiers)
-    if not DOCS_DIR.exists():
-        return f"❌ Dossier corpus introuvable: {DOCS_DIR}"
-    if not PDF_PATH.exists():
-        return f"❌ PDF introuvable: {PDF_PATH}"
+    """Réponse Fractions 5e basée sur le corpus local + sources."""
+    if not DOCS_DIR.exists() or not PDF_PATH.exists():
+        return _missing_corpus_message()
 
     result = rag_chain({"question": question})
     answer = (result.get("answer") or "").strip() or "Je ne sais pas."
@@ -105,14 +131,11 @@ def fractions_rag(question: str) -> str:
     return f"{answer}\n\n{_sources_block(sources)}"
 
 
-@tool
 def didactic_check(text: str) -> str:
-    """
-    Réécrit un contenu en version didactique (fractions 5e) : sens, exemple, erreur fréquente.
-    """
+    """Réécriture didactique (sens, exemple, erreur fréquente)."""
     prompt = f"""
 Tu es un didacticien en mathématiques (spécialiste des fractions, niveau 5e).
-Améliore le texte en évitant les "règles magiques".
+Améliore le texte en évitant les "règles magiques" et en donnant du sens.
 
 Structure obligatoire :
 1) Idée clé
@@ -120,11 +143,11 @@ Structure obligatoire :
 3) Mini-exemple
 4) Erreur fréquente + comment l’éviter
 
-Texte :
+Texte à transformer :
 {text}
 
-Réécriture :
-"""
+Réponse :
+""".strip()
     return llm.invoke(prompt).content.strip()
 
 
@@ -136,11 +159,7 @@ def _load_excel(path: Path) -> pd.DataFrame:
     return pd.read_excel(xls, sheet_name=sheet)
 
 
-@tool
 def lookup_error_remediation(error_id: str) -> str:
-    """
-    Récupère une erreur + remédiation via error_id dans les Excel (erreurs/remédiations).
-    """
     eid = (error_id or "").strip()
     if not eid:
         return "❌ Donne un error_id (ex: add_denominators)."
@@ -152,7 +171,8 @@ def lookup_error_remediation(error_id: str) -> str:
         return (
             "❌ Excel introuvables ou vides.\n"
             f"- {ERREURS_XLSX}\n"
-            f"- {REMED_XLSX}"
+            f"- {REMED_XLSX}\n"
+            "\n👉 Remets les fichiers dans `data/Corpus/` ou corrige les chemins `.env`."
         )
 
     err_df.columns = [c.strip().lower() for c in err_df.columns]
@@ -190,16 +210,14 @@ def lookup_error_remediation(error_id: str) -> str:
     return "\n".join(out)
 
 
-@tool
-def groups_from_csv(_: str = "") -> str:
-    """
-    Pré-analyse simple : agrège les error_tags par élève (responses.csv),
-    puis affiche les 3 tags dominants.
-    """
+def groups_from_csv() -> str:
     if not RESPONSES_CSV.exists():
         return (
-            f"❌ Fichier introuvable: {RESPONSES_CSV}\n"
-            "Crée `data/students/responses.csv` avec au minimum: student_id, error_tags."
+            f"❌ Fichier introuvable: `{RESPONSES_CSV}`\n\n"
+            "✅ Pour l’activer :\n"
+            "- crée `data/Students/responses.csv`\n"
+            "- colonnes minimales : `student_id, error_tags`\n"
+            "- `error_tags` séparés par `|` (ex: add_denominators|compare_fractions)\n"
         )
 
     df = pd.read_csv(RESPONSES_CSV)
@@ -218,13 +236,18 @@ def groups_from_csv(_: str = "") -> str:
 
     df["tags_list"] = df["error_tags"].apply(split_tags)
     agg = df.groupby("student_id")["tags_list"].sum().reset_index()
-    agg["top_tags"] = agg["tags_list"].apply(
-        lambda L: ", ".join(pd.Series(L).value_counts().head(3).index.tolist())
-    )
+
+    def top3(tags: List[str]) -> str:
+        if not tags:
+            return "(aucune erreur taguée)"
+        vc = pd.Series(tags).value_counts().head(3)
+        return ", ".join(vc.index.tolist())
+
+    agg["top_tags"] = agg["tags_list"].apply(top3)
 
     lines = ["🧩 **Pré-analyse des profils d’erreurs (Fractions 5e)**\n"]
     for _, row in agg.iterrows():
-        lines.append(f"- {row['student_id']} → {row['top_tags'] or '(aucune erreur taguée)'}")
+        lines.append(f"- {row['student_id']} → {row['top_tags']}")
 
     lines.append(
         "\n👉 Pour un clustering complet, utilise `clustering_fractions.ipynb` "
@@ -233,12 +256,7 @@ def groups_from_csv(_: str = "") -> str:
     return "\n".join(lines)
 
 
-@tool
 def web_search_tavily(query: str) -> str:
-    """
-    Recherche web via Tavily (utile pour enrichir / vérifier des points).
-    Si TAVILY_API_KEY est absent, l'outil explique quoi faire.
-    """
     if not TAVILY_API_KEY:
         return (
             "❌ TAVILY_API_KEY manquant dans .env.\n"
@@ -275,89 +293,84 @@ def web_search_tavily(query: str) -> str:
     return "\n".join(lines).strip() or "Aucun résultat Tavily."
 
 
-TOOLS = [
-    fractions_rag,
-    didactic_check,
-    lookup_error_remediation,
-    groups_from_csv,
-    web_search_tavily,
-]
-
-# ───────────────────────────── Agent ──────────────────────────────
-# IMPORTANT : on utilise create_agent (que tu as déjà dans ton env).
-# Zéro import AgentExecutor => fini le crash.
-from langchain.agents import create_agent
+# ───────────────────────────── Router ─────────────────────────────
+def _looks_like_groups_request(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in ["responses.csv", "profil", "profils", "groupe", "groupes", "besoin", "classe", "clustering"])
 
 
-SYSTEM_PROMPT = f"""
-Tu es un assistant pédagogique intelligent spécialisé sur les FRACTIONS (niveau 5e),
-dans le cadre d’un mémoire DU Sorbonne Data Analytics.
-
-Corpus local attendu :
-- PDF cours: {PDF_PATH}
-- Excel erreurs: {ERREURS_XLSX}
-- Excel remédiations: {REMED_XLSX}
-
-Règles de décision :
-- Pour une question de cours/méthode/erreur/remédiation : utilise d’abord l’outil `fractions_rag`.
-- Pour rendre une explication plus pédagogique : utilise `didactic_check`.
-- Pour récupérer une fiche via un `error_id` : utilise `lookup_error_remediation`.
-- Pour analyse classe : utilise `groups_from_csv`.
-- Pour une vérification web (hors corpus) : utilise `web_search_tavily` (si disponible).
-
-Règle de vérité :
-- Si l’info n’est pas dans le corpus et que la recherche web n’est pas dispo : dis exactement « Je ne sais pas. »
-- N’invente jamais de sources.
-""".strip()
-
-# create_agent retourne un runnable “agent” (pas besoin d’AgentExecutor)
-agent = create_agent(llm, TOOLS, system_prompt=SYSTEM_PROMPT)
+def _extract_error_id(text: str) -> Optional[str]:
+    # Ex: "error_id=add_denominators" ou "error_id: add_denominators"
+    m = re.search(r"error_id\s*[:=]\s*([a-z0-9_\-]+)", text.strip(), flags=re.I)
+    return m.group(1) if m else None
 
 
-def _extract_text(result: Any) -> str:
-    """Récupère proprement du texte depuis différents formats de retour."""
-    if result is None:
-        return ""
-    if isinstance(result, str):
-        return result
-    if isinstance(result, dict):
-        # selon versions, la clé peut varier
-        for k in ("output", "final", "answer", "result", "text"):
-            v = result.get(k)
-            if isinstance(v, str) and v.strip():
-                return v
-        # fallback : stringify
-        return str(result)
-    # messages / objets
-    return str(result)
+def _looks_like_didactic_request(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in ["rends didactique", "version didactique", "reformule", "vulgarise", "explique avec du sens"])
 
 
+def _strip_didactic_prefix(text: str) -> str:
+    # enlève "Rends didactique : ..." pour ne garder que le contenu à transformer
+    s = text.strip()
+    s = re.sub(r"^(rends\s+didactique\s*[:\-]?\s*)", "", s, flags=re.I)
+    s = re.sub(r"^(reformule\s*[:\-]?\s*)", "", s, flags=re.I)
+    s = re.sub(r"^(version\s+didactique\s*[:\-]?\s*)", "", s, flags=re.I)
+    return s.strip() or text.strip()
+
+
+def _looks_like_web_request(text: str) -> bool:
+    t = text.lower()
+    return t.startswith("/web ") or any(k in t for k in ["cherche sur le web", "recherche web", "sur internet", "tavily"])
+
+
+def _strip_web_prefix(text: str) -> str:
+    t = text.strip()
+    if t.lower().startswith("/web"):
+        return t[4:].strip()
+    return t
+
+
+# ───────────────────────────── API Chainlit ───────────────────────
 def run_agent(message: str) -> str:
     """
-    Fonction appelée par Chainlit.
-    Retourne toujours une réponse texte.
+    Point d’entrée unique (Chainlit).
+    Objectif: toujours renvoyer une STRING utile, et ne jamais crasher.
     """
     msg = (message or "").strip()
     if not msg:
         return "Écris une question 🙂"
 
-    # IMPORTANT : certaines implémentations attendent {"input": "..."}
-    # d’autres acceptent directement une string.
+    # 0) commandes rapides (optionnelles)
+    if msg.strip().lower() in {"/groups", "/classe"}:
+        return groups_from_csv()
+
+    # 1) Groupes classe
+    if _looks_like_groups_request(msg):
+        return groups_from_csv()
+
+    # 2) Lookup Excel (error_id)
+    eid = _extract_error_id(msg)
+    if eid:
+        return lookup_error_remediation(eid)
+
+    # 3) Didactique
+    if _looks_like_didactic_request(msg):
+        core = _strip_didactic_prefix(msg)
+        return didactic_check(core)
+
+    # 4) Web (optionnel)
+    if _looks_like_web_request(msg):
+        q = _strip_web_prefix(msg)
+        if not q:
+            return "❌ Utilise : `/web ta question`"
+        return web_search_tavily(q)
+
+    # 5) Par défaut: RAG local (cœur de ton assistant)
     try:
-        if hasattr(agent, "invoke"):
-            try:
-                res = agent.invoke({"input": msg})
-            except Exception:
-                res = agent.invoke(msg)
-        else:
-            # fallback ultra-safe
-            return fractions_rag(msg)
+        return fractions_rag(msg)
     except Exception as e:
-        # On ne laisse pas l’UI mourir
         return (
-            "⚠️ Désolé, je n’ai pas pu générer de réponse.\n\n"
+            "⚠️ Désolé, je n’ai pas pu générer de réponse via le RAG.\n\n"
             f"Erreur: {type(e).__name__}: {e}"
         )
-
-    out = _extract_text(res).strip()
-    return out if out else "Désolé, je n’ai pas pu générer de réponse."
