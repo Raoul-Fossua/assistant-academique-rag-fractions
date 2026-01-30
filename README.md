@@ -11,7 +11,7 @@ Le projet combine :
 
 Projet développé dans le cadre du **DU Sorbonne Data Analytics**.
 
-##2️⃣ 🎯 Objectifs pédagogiques
+#2️⃣ 🎯 Objectifs pédagogiques
 
 - Répondre aux questions de cours sur les fractions (niveau 5e) **uniquement à partir du corpus**
 - Identifier et expliquer les **erreurs fréquentes** des élèves
@@ -19,7 +19,7 @@ Projet développé dans le cadre du **DU Sorbonne Data Analytics**.
 - Préparer une future **analyse de profils d’erreurs** (clustering d’élèves)
 - Éviter toute réponse “hors programme” ou inventée
 
-##3️⃣ 🧠 Architecture technique
+#3️⃣ 🧠 Architecture technique
 
 - **LLM** : OpenAI (via `langchain-openai`)
 - **RAG** :
@@ -31,7 +31,7 @@ Projet développé dans le cadre du **DU Sorbonne Data Analytics**.
 
 Pipeline : Documents → Chunking → Embeddings → FAISS → Retriever → LLM → Réponse sourcée
 
-##4️⃣ ⚙️ Installation
+#4️⃣ ⚙️ Installation
 
 ```powershell
 python -m venv .venv
@@ -40,7 +40,7 @@ pip install -r requirements.txt
  
 ---
 
-## 5️⃣ Configuration (.env)  
+# 5️⃣ Configuration (.env)  
 
 🔐 Configuration
 
@@ -51,7 +51,7 @@ OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
 TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxx
 FAISS_DIR=C:\faiss_fractions
 
-##6️⃣ Données (section cruciale RGPD / droits)
+#6️⃣ Données (section cruciale RGPD / droits)
 
 📁 Données : Les données ne sont **pas versionnées** sur GitHub.
 
@@ -66,20 +66,20 @@ Arborescence attendue :
 
 ⚠️ Les fichiers pédagogiques et les données élèves restent **strictement locales**.
 
-##7️⃣ ▶️ Lancer l’application
+#7️⃣ ▶️ Lancer l’application
 
 ```powershell
 python -m chainlit run .\chainlit_app.py -w
 
 ---
 
-##8️⃣ 🚧 État du projet
+#8️⃣ 🚧 État du projet
 
 - RAG fonctionnel (PDF + Excel)
 - Agent pédagogique opérationnel
 - Interface Chainlit stable
 
-##9️⃣ 🔭 Perspectives (vision à court, moyen et long terme)
+#9️⃣ 🔭 Perspectives (vision à court, moyen et long terme)
 - Clustering automatique des profils d’erreurs
 - Tableaux de bord enseignants
 - Extension à d’autres chapitres (proportionnalité, géométrie…)
