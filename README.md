@@ -1,89 +1,199 @@
-#1️⃣ Assistant Académique + RAG (Fractions en classe de 5e)
+📚 Assistant pédagogique intelligent – Fractions (5e)
+Architecture RAG + Analyse de données éducatives
+🎓 Cadre académique
 
-Assistant pédagogique intelligent basé sur une architecture **RAG (Retrieval-Augmented Generation)**, 
-conçu pour l’enseignement des **fractions en classe de 5e**.
+Projet réalisé dans le cadre du DU Sorbonne Data Analytics
+Objectif : concevoir un assistant pédagogique intelligent combinant
+IA générative, RAG (Retrieval-Augmented Generation) et analyse de données éducatives, appliqué à l’enseignement des fractions en classe de 5e.
 
-Le projet combine :
-- **LangChain** (orchestration RAG + agents),
-- **Chainlit** (interface conversationnelle),
-- **FAISS** (vectorisation locale),
-- des **documents pédagogiques réels** (cours, erreurs fréquentes, remédiations).
+🎯 Problématique pédagogique
 
-Projet développé dans le cadre du **DU Sorbonne Data Analytics**.
+L’enseignement des fractions en collège est marqué par :
 
-#2️⃣ 🎯 Objectifs pédagogiques
+des erreurs conceptuelles récurrentes (sens du dénominateur, équivalences, opérations),
 
-- Répondre aux questions de cours sur les fractions (niveau 5e) **uniquement à partir du corpus**
-- Identifier et expliquer les **erreurs fréquentes** des élèves
-- Proposer des **remédiations didactiques structurées**
-- Préparer une future **analyse de profils d’erreurs** (clustering d’élèves)
-- Éviter toute réponse “hors programme” ou inventée
+une difficulté à relier procédures et compréhension,
 
-#3️⃣ 🧠 Architecture technique
+un besoin fort de différenciation pédagogique à partir de données réelles d’élèves.
 
-- **LLM** : OpenAI (via `langchain-openai`)
-- **RAG** :
-  - PDF de cours (Fractions 5e)
-  - Fichiers Excel (erreurs fréquentes + remédiations)
-- **Vector store** : FAISS (local)
-- **Interface** : Chainlit
-- **Langage** : Python 3.11
+👉 Problème central :
 
-Pipeline : Documents → Chunking → Embeddings → FAISS → Retriever → LLM → Réponse sourcée
+Comment exploiter des données élèves et des ressources pédagogiques pour diagnostiquer finement les difficultés, former des groupes de besoin, et proposer des recommandations pédagogiques adaptées, tout en garantissant la traçabilité des réponses ?
 
-#4️⃣ ⚙️ Installation
+🧠 Objectifs du projet
+Objectifs pédagogiques
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
- 
----
+Expliquer les notions sur les fractions avec du sens (pas de règles magiques).
 
-# 5️⃣ Configuration (.env)  
+Identifier les erreurs fréquentes et leurs causes didactiques.
 
-🔐 Configuration
+Produire des recommandations pédagogiques ciblées par profil d’élèves.
 
-Créer un fichier `.env` à la racine du projet (non versionné) :
+Objectifs data & IA
 
-```env
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
-TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxx
-FAISS_DIR=C:\faiss_fractions
+Mettre en œuvre une architecture RAG fiable (sources traçables).
 
-#6️⃣ Données (section cruciale RGPD / droits)
+Exploiter un fichier de réponses élèves pour :
 
-📁 Données : Les données ne sont **pas versionnées** sur GitHub.
+analyser les taux de réussite par objectif,
 
-Arborescence attendue :
+identifier les objectifs les plus difficiles,
 
-- `data/Corpus/`
-  - `Cours_Fractions_5e.pdf`
-  - `Erreurs_Fractions_5e.xlsx`
-  - `Remediations_Fractions_5e.xlsx`
-- `data/Students/`
-  - `responses.csv` (données anonymisées)
+classifier les élèves en groupes de besoin.
 
-⚠️ Les fichiers pédagogiques et les données élèves restent **strictement locales**.
+Générer des exports exploitables par l’enseignant (CSV).
 
-#7️⃣ ▶️ Lancer l’application
+🏗️ Architecture générale
+Assistant pédagogique
+│
+├── RAG pédagogique (LangChain)
+│   ├── PDF : cours sur les fractions
+│   ├── Excel : erreurs fréquentes
+│   └── Excel : remédiations pédagogiques
+│
+├── Analyse de données élèves
+│   ├── Scores par objectif (OBJ1 → OBJ10)
+│   ├── Statistiques de réussite
+│   ├── Profils d’erreurs
+│   └── Groupes de besoin
+│
+├── IA générative (LLM)
+│   ├── Explications contextualisées
+│   ├── Reformulation didactique
+│   └── Recommandations pédagogiques
+│
+└── Interface Chainlit (enseignant)
 
-```powershell
-python -m chainlit run .\chainlit_app.py -w
+🧾 Données utilisées
+1️⃣ Corpus pédagogique (RAG)
 
----
+Cours_Fractions_5e.pdf
 
-#8️⃣ 🚧 État du projet
+Erreurs_Fractions_5e.xlsx
 
-- RAG fonctionnel (PDF + Excel)
-- Agent pédagogique opérationnel
-- Interface Chainlit stable
+Remediations_Fractions_5e.xlsx
 
-#9️⃣ 🔭 Perspectives (vision à court, moyen et long terme)
-- Clustering automatique des profils d’erreurs
-- Tableaux de bord enseignants
-- Extension à d’autres chapitres (proportionnalité, géométrie…)
+👉 Ces documents sont interrogés par le modèle, et toute réponse cite explicitement ses sources.
+
+2️⃣ Données élèves (responses.csv)
+
+Structure attendue :
+
+ID_Eleve | Nom | Prenom | Classe
+OBJ1_Score ... OBJ10_Score
+Total_Score
+Rep_Score | Compare_Score | Equiv_Score | Ops_Score
 
 
-##👤 Auteur
-Raoul FOSSUA TINDO   ( Enseignant en mathématiques)                                                                                                                                                                                                                           Projet de fin d’étude développé dans le cadre de la Session 6 du DU Sorbonne Data Analytics (Paris 1 Panthéon-Sorbonne)
+Scores binaires (0/1) par objectif d’apprentissage
+
+Données anonymisables et non versionnées (RGPD)
+
+📊 Analyse pédagogique automatisée
+Analyse par objectif
+
+Calcul du taux de réussite par objectif
+
+Identification automatique des objectifs les plus difficiles
+
+Groupes de besoin (6 profils)
+Groupe	Profil	Couleur	Finalité pédagogique
+A	Approfondissement (experts)	Vert foncé	Défis, justification
+B	Consolidation	Vert	Stabiliser les acquis
+C	Renforcement opérations	Jaune	Entraînement ciblé
+D	Soutien ciblé	Orange	Procédures guidées
+E	Remédiation sens	Rouge	Représentations
+F	Remédiation intensive	Violet	Accompagnement rapproché
+
+Chaque groupe est associé à :
+
+une couleur,
+
+un profil d’erreurs dominant,
+
+une recommandation pédagogique explicite.
+
+📤 Exports générés
+
+Commande /export :
+
+Fichier	Contenu
+stats_objectifs.csv	Taux de réussite par objectif
+groupes_eleves.csv	Groupe, couleur, score par élève
+recommandations_groupes.csv	Synthèse pédagogique par groupe
+
+👉 Exploitables directement en conseil de cycle, APC ou différenciation.
+
+💬 Interface utilisateur (Chainlit)
+
+Commandes disponibles :
+
+/help – aide rapide
+
+/examples – exemples de questions
+
+/analyze – analyse de la classe (fichier par défaut)
+
+/analyze <chemin> – analyse d’un autre fichier
+
+/export – génération des CSV pédagogiques
+
+L’assistant :
+
+gère les entrées multi-lignes,
+
+ne plante jamais (gestion des erreurs),
+
+refuse d’inventer si l’information n’est pas disponible.
+
+🔐 Sécurité & éthique
+
+Données élèves non versionnées (.gitignore)
+
+Clés API sécurisées (.env)
+
+Séparation claire entre :
+
+code,
+
+données,
+
+résultats générés
+
+Respect des principes RGPD et de la propriété intellectuelle
+
+🛠️ Technologies utilisées
+
+Python 3.11
+
+LangChain (RAG)
+
+FAISS (vectorisation locale)
+
+OpenAI API (LLM)
+
+Pandas / NumPy
+
+Chainlit (interface pédagogique)
+
+🚀 Perspectives d’évolution
+
+Ajout de clustering automatique (KMeans, silhouette)
+
+Suivi longitudinal des élèves
+
+Extension à d’autres chapitres (proportionnalité, nombres relatifs)
+
+Interface enseignant enrichie (tableaux de bord)
+
+👨‍🏫 Public cible
+
+Enseignants de mathématiques collège
+
+Chercheurs en didactique des mathématiques
+
+Encadrants data / IA éducative
+
+📌 Conclusion
+
+Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
