@@ -37,3 +37,9 @@ data/Corpus/Cours_Fractions_5e.pdf
 !data/Corpus/.gitkeep
 !data/Students/sample_responses.csv
 !data/Corpus/README.md
+
+# Answer key (souvent sensible)
+answer_key.json
+
+# Docs lourds
+*.docx
