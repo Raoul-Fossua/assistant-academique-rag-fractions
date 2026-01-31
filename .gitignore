@@ -1,45 +1,61 @@
+# ======================
 # Secrets
+# ======================
 .env
 
+# ======================
 # Python
+# ======================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
-# Virtual environments
 .venv/
 venv/
 
+# ======================
 # FAISS / vectorstores
+# ======================
 faiss_store/
 faiss.index
 faiss.index.meta.json
-C:/faiss_fractions/
 
+# ======================
 # Chainlit
+# ======================
 .chainlit/
 .files/
 
+# ======================
 # Jupyter
+# ======================
 .ipynb_checkpoints/
 
+# ======================
 # OS
+# ======================
 .DS_Store
 Thumbs.db
 
-# Data (ne pas versionner)
-data/Students/responses.csv
-data/Corpus/Cours_Fractions_5e.pdf
-
-# Option : autoriser des exemples publics
-!data/Students/.gitkeep
-!data/Corpus/.gitkeep
+# ======================
+# Data sensibles (élèves / corpus)
+# ======================
+data/**
+!data/**/.gitkeep
+!data/**/README.md
 !data/Students/sample_responses.csv
-!data/Corpus/README.md
 
-# Answer key (souvent sensible)
+# ======================
+# Exports générés
+# ======================
+exports/
+
+# ======================
+# Answer key (corrigés)
+# ======================
 answer_key.json
 
+# ======================
 # Docs lourds
+# ======================
 *.docx
