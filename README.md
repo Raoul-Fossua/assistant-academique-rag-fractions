@@ -188,7 +188,11 @@ Interface enseignant enrichie (tableaux de bord)
 
 👨‍🏫 Public cible
 
+<<<<<<< HEAD
 Enseignants de mathématiques collège
+=======
+Enseignants de mathématiques Collège / Lycée
+>>>>>>> 14ab861 (docs: add academic README (DU Sorbonne Data Analytics))
 
 Chercheurs en didactique des mathématiques
 
@@ -196,4 +200,8 @@ Encadrants data / IA éducative
 
 📌 Conclusion
 
+<<<<<<< HEAD
 Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
+=======
+Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
+>>>>>>> 14ab861 (docs: add academic README (DU Sorbonne Data Analytics))
