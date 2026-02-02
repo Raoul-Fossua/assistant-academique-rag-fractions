@@ -44,7 +44,8 @@ data/**
 !data/**/.gitkeep
 !data/**/README.md
 !data/Students/sample_responses.csv
-
+data/Students/responses.csv
+data/Corpus/Cours_Fractions_5e.pdf
 # ======================
 # Exports générés
 # ======================
