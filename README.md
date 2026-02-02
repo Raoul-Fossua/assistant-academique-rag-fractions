@@ -196,8 +196,5 @@ Encadrants data / IA éducative
 
 📌 Conclusion
 
- 
-Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
-=======
 Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
  
