@@ -14,6 +14,6 @@ RUN pip install --no-cache-dir -r requirements.docker.txt
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 7860
+CMD ["chainlit", "run", "chainlit_app.py", "--host", "0.0.0.0", "--port", "7860"]
 
-CMD ["chainlit", "run", "chainlit_app.py", "--host", "0.0.0.0", "--port", "8000"]
