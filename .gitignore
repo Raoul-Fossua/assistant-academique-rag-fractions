@@ -60,3 +60,4 @@ answer_key.json
 # Docs lourds
 # ======================
 *.docx
+_local_backup/
