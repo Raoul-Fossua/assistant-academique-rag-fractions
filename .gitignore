@@ -46,6 +46,8 @@ data/**
 !data/Students/sample_responses.csv
 data/Students/responses.csv
 data/Corpus/Cours_Fractions_5e.pdf
+data/Corpus/*.pdf
+
 # ======================
 # Exports générés
 # ======================
