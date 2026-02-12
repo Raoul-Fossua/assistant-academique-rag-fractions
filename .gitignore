@@ -47,8 +47,14 @@ exports/
 # - un sample anonymisé
 # - des .gitkeep si besoin
 # ======================
+# Ignore data by default
+
 data/**
 
+# Keep structure + demo files
+!data/Corpus/
+!data/Corpus/corpus_fractions_5e.txt
+!data/Corpus/.gitkeep
 !data/**/.gitkeep
 !data/**/README.md
 

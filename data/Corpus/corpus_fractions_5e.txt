@@ -1,0 +1,116 @@
+============================================================
+CORPUS PÉDAGOGIQUE – FRACTIONS – CLASSE DE 5e
+Assistant pédagogique intelligent (RAG) – DU Sorbonne Data Analytics
+Source : Cours "5ème - Fractions"
+============================================================
+
+SECTION 0 – Compétences visées (repères)
+------------------------------------------------------------
+T1 Vocabulaire, définitions, propriétés
+T2 Résoudre un problème et rédiger
+N11 Multiples / diviseurs (si besoin pour simplifier)
+N12 Écritures fractionnaires d’un même nombre
+N13 Comparer des fractions (même dénominateur / dénominateur multiple)
+N14 Addition / soustraction (même dénominateur / dénominateur multiple)
+N15 Multiplier des nombres (décimal ou fractionnaire)
+N16 Calculs enchaînés avec des fractions
+N17 Calculatrice (fractions)
+N18 Fraction comme expression d’une proportion
+
+SECTION 1 – Une fraction = écriture d’un quotient
+------------------------------------------------------------
+Si a et b sont des nombres et b ≠ 0 :
+a ÷ b peut s’écrire : a/b
+et b × (a/b) = a.
+
+Si a et b sont entiers :
+a/b est une fraction
+- a : numérateur
+- b : dénominateur
+
+Exemples :
+8/5 = 1,6 (quotient exact)
+8/3 : ne s’écrit pas en décimal fini ; on utilise une valeur approchée si besoin.
+
+SECTION 2 – Vocabulaire essentiel
+------------------------------------------------------------
+Numérateur : le nombre "du haut" (combien de parts prises)
+Dénominateur : le nombre "du bas" (en combien de parts égales on partage l’unité)
+
+SECTION 3 – Fractions équivalentes (même valeur)
+------------------------------------------------------------
+On ne change pas la valeur d’une fraction en multipliant ou divisant
+numérateur ET dénominateur par un même nombre non nul k :
+
+a/b = (a×k)/(b×k)
+a/b = (a÷k)/(b÷k)  (si division possible)
+
+Exemples :
+3/5 = 6/10
+12/21 = 4/7
+
+SECTION 4 – Simplifier une fraction (réduire)
+------------------------------------------------------------
+Simplifier = trouver une fraction égale avec des nombres plus petits.
+Méthode : diviser numérateur et dénominateur par un même diviseur commun.
+
+Exemples :
+8/12 = 2/3
+20/35 = 4/7
+
+Une fraction irréductible : on ne peut plus simplifier.
+
+SECTION 5 – Comparer des fractions
+------------------------------------------------------------
+Règle 1 : même dénominateur
+→ on compare les numérateurs.
+Ex : 5/7 < 8/7
+
+Règle 2 : même numérateur
+→ ordre inverse des dénominateurs.
+Ex : 5/7 > 5/9
+
+Règle 3 : si le dénominateur de l’une est multiple de l’autre
+→ on met au même dénominateur puis règle 1.
+Ex : 5/7 = 10/14, donc 5/7 > 9/14
+
+Astuce “autour de 1” :
+- si numérateur < dénominateur → fraction < 1
+- si numérateur > dénominateur → fraction > 1
+
+SECTION 6 – Addition et soustraction de fractions
+------------------------------------------------------------
+Même dénominateur b :
+a/b + c/b = (a+c)/b
+a/b - c/b = (a-c)/b
+
+Dénominateurs différents :
+→ réduire au même dénominateur puis appliquer la règle.
+
+Exemples :
+3/4 + 21/4 = 24/4 = 6
+21/8 + 3/4 = 21/8 + 6/8 = 27/8
+
+SECTION 7 – Multiplication de fractions
+------------------------------------------------------------
+a/b × c/d = (a×c)/(b×d)   (b≠0, d≠0)
+
+Conseil pratique :
+simplifier AVANT de multiplier quand c’est possible.
+
+SECTION 8 – Erreurs fréquentes (et antidotes)
+------------------------------------------------------------
+Erreur A : additionner les dénominateurs
+Faux : 1/2 + 1/2 ≠ 2/4
+Vrai : 1/2 + 1/2 = 2/2 = 1
+
+Erreur B : comparer en regardant seulement les dénominateurs
+Ex : 1/3 et 1/4
+Vrai : 1/3 > 1/4 (plus on partage, plus les parts sont petites)
+
+Erreur C : oublier de mettre au même dénominateur quand ils sont différents
+Antidote : “même dénominateur = même unité de mesure”
+
+============================================================
+FIN DU CORPUS
+============================================================
