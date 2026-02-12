@@ -33,10 +33,10 @@ HELP = """📌 **Aide rapide**
 - *Explique “mettre au même dénominateur” avec du sens.*
 - *Pourquoi certains élèves font 1/2 + 1/3 = 2/5 ?*
 - *Rends didactique : “on met au même dénominateur”.*
-- *Analyse ma classe (responses.csv).*
+- *Analyse ma classe (responses.csv).*  
 
 🧾 Sources :
-Quand je réponds via le corpus, j’ajoute toujours un bloc **Sources** (PDF/pages, Excel, etc.).
+Quand je réponds via le corpus, j’ajoute un bloc **Sources** (PDF/pages, TXT, Excel, etc.).
 
 ⚠️ Si le corpus ne contient pas l’information, je dois dire : **« Je ne sais pas. »**
 """
@@ -75,14 +75,12 @@ def _split_user_message(content: str) -> List[str]:
 
 def _parse_command(line: str) -> Tuple[str, str]:
     """
-    Parse une commande de type:
+    Parse une commande:
       /analyze
       /analyze data/Students/responses.csv
       /analyze "C:\\path with spaces\\file.csv"
     Retourne: (cmd, arg)
     """
-    # Exemple line = '/analyze "data/Students/my file.csv"'
-    # On utilise shlex pour gérer les guillemets.
     tokens = shlex.split(line)
     cmd = tokens[0].lower() if tokens else ""
     arg = " ".join(tokens[1:]).strip() if len(tokens) > 1 else ""
@@ -91,7 +89,6 @@ def _parse_command(line: str) -> Tuple[str, str]:
 
 async def _handle_one_line(line: str) -> None:
     """Traite une ligne: commande ou question."""
-    # Commandes (en minuscules)
     if line.lower() in {"/help", "help"}:
         await cl.Message(content=HELP).send()
         return
@@ -107,29 +104,22 @@ async def _handle_one_line(line: str) -> None:
     if line.startswith("/"):
         cmd, arg = _parse_command(line)
 
-        # /analyze [path]
         if cmd == "/analyze":
             payload = line if not arg else f"/analyze {arg}"
             answer = run_agent(payload)
             await cl.Message(content=answer).send()
             return
 
-        # /export
         if cmd == "/export":
             answer = run_agent("/export")
             await cl.Message(content=answer).send()
             return
 
-        # Commande inconnue
         await cl.Message(
-            content=(
-                "❓ Commande inconnue.\n"
-                "Essaye `/help` pour voir les commandes disponibles."
-            )
+            content="❓ Commande inconnue.\nEssaye `/help` pour voir les commandes disponibles."
         ).send()
         return
 
-    # Question “normale” (non commande)
     thinking = cl.Message(content="⏳ Je réfléchis…")
     await thinking.send()
 
@@ -143,7 +133,7 @@ async def _handle_one_line(line: str) -> None:
         thinking.content = (
             "⚠️ **Erreur interne** pendant le traitement.\n\n"
             f"**Détail :** `{type(e).__name__}`\n"
-            "👉 Astuce : vérifie ton `.env` (clés), et que le corpus est bien présent.\n"
+            "👉 Astuce : vérifie tes secrets HF (OPENAI_API_KEY), et que le corpus TXT est présent.\n"
         )
         await thinking.update()
         raise
@@ -156,13 +146,11 @@ async def on_chat_start():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    # ⭐️ Nouveau : support multi-lignes / multi-commandes
     lines = _split_user_message(message.content)
 
     if not lines:
         await cl.Message(content="Écris une question 🙂").send()
         return
 
-    # On exécute chaque ligne dans l'ordre
     for line in lines:
         await _handle_one_line(line)

@@ -1,200 +1,163 @@
-📚 Assistant pédagogique intelligent – Fractions (5e)
-Architecture RAG + Analyse de données éducatives
-🎓 Cadre académique
+---
+title: "📚 Assistant pédagogique intelligent – Fractions (5e)"
+emoji: "📚"
+colorFrom: "blue"
+colorTo: "green"
+sdk: "docker"
+pinned: false
+---
 
-Projet réalisé dans le cadre du DU Sorbonne Data Analytics
-Objectif : concevoir un assistant pédagogique intelligent combinant
-IA générative, RAG (Retrieval-Augmented Generation) et analyse de données éducatives, appliqué à l’enseignement des fractions en classe de 5e.
+# 📚 Assistant pédagogique intelligent – Fractions (5e)
+**Architecture RAG + Analyse de données éducatives (Chainlit)**  
+Projet DU Sorbonne Data Analytics — IA générative appliquée à l’enseignement des fractions en classe de 5e.
 
-🎯 Problématique pédagogique
+---
 
-L’enseignement des fractions en collège est marqué par :
+## 🎓 Cadre académique
+Ce projet est réalisé dans le cadre du **DU Sorbonne Data Analytics (Université Paris 1 Panthéon-Sorbonne)**.
 
-des erreurs conceptuelles récurrentes (sens du dénominateur, équivalences, opérations),
+**Objectif :** concevoir un assistant pédagogique intelligent combinant :
+- **IA générative** (LLM)
+- **RAG** (Retrieval-Augmented Generation) avec **traçabilité des sources**
+- **Analyse de données éducatives** (diagnostic, groupes de besoin, exports)
 
-une difficulté à relier procédures et compréhension,
+Application : **fractions – niveau 5e**.
 
-un besoin fort de différenciation pédagogique à partir de données réelles d’élèves.
+---
 
-👉 Problème central :
+## 🎯 Problématique pédagogique
+L’enseignement des fractions au collège est souvent marqué par :
+- des **erreurs conceptuelles récurrentes** (sens du dénominateur, équivalences, opérations),
+- une difficulté à relier **procédure** et **compréhension**,
+- un besoin fort de **différenciation**, idéalement appuyée sur des données d’élèves.
 
-Comment exploiter des données élèves et des ressources pédagogiques pour diagnostiquer finement les difficultés, former des groupes de besoin, et proposer des recommandations pédagogiques adaptées, tout en garantissant la traçabilité des réponses ?
+👉 **Problème central :**  
+Comment exploiter des données élèves et des ressources pédagogiques pour **diagnostiquer finement** les difficultés, **former des groupes de besoin**, et **proposer des recommandations pédagogiques**, tout en garantissant la **traçabilité** des réponses ?
 
-🧠 Objectifs du projet
-Objectifs pédagogiques
+---
 
-Expliquer les notions sur les fractions avec du sens (pas de règles magiques).
+## 🧠 Objectifs du projet
 
-Identifier les erreurs fréquentes et leurs causes didactiques.
+### Objectifs pédagogiques
+- Expliquer les notions sur les fractions **avec du sens** (pas de “règles magiques”).
+- Identifier les **erreurs fréquentes** et leur origine didactique.
+- Produire des **recommandations pédagogiques** ciblées (par profils d’élèves).
 
-Produire des recommandations pédagogiques ciblées par profil d’élèves.
+### Objectifs data & IA
+- Mettre en œuvre une architecture **RAG fiable** (sources citées).
+- Exploiter un fichier de réponses élèves pour :
+  - analyser les **taux de réussite** par objectif (OBJ1 → OBJ10),
+  - identifier les **objectifs difficiles**,
+  - regrouper les élèves en **groupes de besoin**.
+- Générer des **exports CSV** exploitables par l’enseignant.
 
-Objectifs data & IA
+---
 
-Mettre en œuvre une architecture RAG fiable (sources traçables).
+## 🏗️ Architecture générale (vue d’ensemble)
 
-Exploiter un fichier de réponses élèves pour :
-
-analyser les taux de réussite par objectif,
-
-identifier les objectifs les plus difficiles,
-
-classifier les élèves en groupes de besoin.
-
-Générer des exports exploitables par l’enseignant (CSV).
-
-🏗️ Architecture générale
 Assistant pédagogique
 │
-├── RAG pédagogique (LangChain)
-│   ├── PDF : cours sur les fractions
-│   ├── Excel : erreurs fréquentes
-│   └── Excel : remédiations pédagogiques
+├── RAG pédagogique (LangChain + FAISS)
+│ ├── Corpus TXT (mode démo HF)
+│ ├── PDF : cours fractions (optionnel / local)
+│ ├── Excel : erreurs fréquentes (optionnel)
+│ └── Excel : remédiations (optionnel)
 │
-├── Analyse de données élèves
-│   ├── Scores par objectif (OBJ1 → OBJ10)
-│   ├── Statistiques de réussite
-│   ├── Profils d’erreurs
-│   └── Groupes de besoin
-│
-├── IA générative (LLM)
-│   ├── Explications contextualisées
-│   ├── Reformulation didactique
-│   └── Recommandations pédagogiques
+├── Analyse de données élèves (Pandas)
+│ ├── Scores par objectif OBJ1..OBJ10 (0/1)
+│ ├── Statistiques de réussite
+│ ├── Profils (Rep / Compare / Equiv / Ops)
+│ └── Groupes de besoin A..F
 │
 └── Interface Chainlit (enseignant)
 
-🧾 Données utilisées
-1️⃣ Corpus pédagogique (RAG)
+---
 
-Cours_Fractions_5e.pdf
+## 🧾 Données utilisées
 
-Erreurs_Fractions_5e.xlsx
+### 1) Corpus pédagogique (RAG)
+Objectif : produire des réponses **ancrées dans un corpus** et **citées**.
 
-Remediations_Fractions_5e.xlsx
+- `data/Corpus/corpus_fractions_5e.txt` ✅ **recommandé pour Hugging Face**
+- `data/Corpus/Cours_Fractions_5e.pdf` (local, non versionné en général)
+- `data/Corpus/Erreurs_Fractions_5e.xlsx` (optionnel)
+- `data/Corpus/Remediations_Fractions_5e.xlsx` (optionnel)
 
-👉 Ces documents sont interrogés par le modèle, et toute réponse cite explicitement ses sources.
+📌 L’assistant doit **refuser d’inventer** :  
+si l’info n’est pas dans le corpus → **“Je ne sais pas.”**
 
-2️⃣ Données élèves (responses.csv)
+---
 
-Structure attendue :
+### 2) Données élèves (responses.csv)
+Fichier attendu (structure minimale) :
+- `OBJ1_Score ... OBJ10_Score` (scores binaires 0/1)
+- optionnel : Nom/Prénom/Classe (souvent anonymisé)
 
-ID_Eleve | Nom | Prenom | Classe
-OBJ1_Score ... OBJ10_Score
-Total_Score
-Rep_Score | Compare_Score | Equiv_Score | Ops_Score
+📌 Sur Hugging Face : mode démo via :
+- `data/Students/sample_responses.csv` ✅ (anonymisé, petit, présentable)
 
+---
 
-Scores binaires (0/1) par objectif d’apprentissage
+## 📊 Analyse pédagogique automatisée
 
-Données anonymisables et non versionnées (RGPD)
+### Analyse par objectif
+- Calcul du **taux de réussite** par objectif
+- Identification automatique des **objectifs les plus difficiles**
 
-📊 Analyse pédagogique automatisée
-Analyse par objectif
-
-Calcul du taux de réussite par objectif
-
-Identification automatique des objectifs les plus difficiles
-
-Groupes de besoin (6 profils)
-Groupe	Profil	Couleur	Finalité pédagogique
-A	Approfondissement (experts)	Vert foncé	Défis, justification
-B	Consolidation	Vert	Stabiliser les acquis
-C	Renforcement opérations	Jaune	Entraînement ciblé
-D	Soutien ciblé	Orange	Procédures guidées
-E	Remédiation sens	Rouge	Représentations
-F	Remédiation intensive	Violet	Accompagnement rapproché
+### Groupes de besoin (6 profils)
+| Groupe | Profil | Couleur | Finalité pédagogique |
+|------:|--------|---------|----------------------|
+| A | Approfondissement (experts) | Vert foncé | Défis, justification |
+| B | Consolidation | Vert | Stabiliser les acquis |
+| C | Renforcement opérations | Jaune | Entraînement ciblé |
+| D | Soutien ciblé | Orange | Procédures guidées |
+| E | Remédiation sens | Rouge | Représentations |
+| F | Remédiation intensive | Violet | Accompagnement rapproché |
 
 Chaque groupe est associé à :
+- une couleur,
+- une recommandation pédagogique explicite.
 
-une couleur,
+---
 
-un profil d’erreurs dominant,
+## 📤 Exports générés
+Commande `/export` :
 
-une recommandation pédagogique explicite.
+| Fichier | Contenu |
+|--------|---------|
+| `exports/stats_objectifs.csv` | Taux de réussite par objectif |
+| `exports/groupes_eleves.csv` | Groupe, couleur, score par élève |
+| `exports/recommandations_groupes.csv` | Synthèse pédagogique par groupe |
 
-📤 Exports générés
+➡️ Exploitables directement en **différenciation**, **APC**, **conseil de cycle**.
 
-Commande /export :
+---
 
-Fichier	Contenu
-stats_objectifs.csv	Taux de réussite par objectif
-groupes_eleves.csv	Groupe, couleur, score par élève
-recommandations_groupes.csv	Synthèse pédagogique par groupe
+## 💬 Interface utilisateur (Chainlit)
 
-👉 Exploitables directement en conseil de cycle, APC ou différenciation.
+### Commandes disponibles
+- `/help` – aide rapide
+- `/examples` – exemples de questions
+- `/analyze` – analyse de classe (fichier par défaut)
+- `/analyze <chemin>` – analyse d’un autre fichier
+- `/export` – génération des CSV pédagogiques
 
-💬 Interface utilisateur (Chainlit)
+### Comportement attendu
+- support des entrées multi-lignes
+- gestion des erreurs sans crash
+- aucune hallucination : **sources ou “je ne sais pas”**
 
-Commandes disponibles :
+---
 
-/help – aide rapide
+## 🚀 Démarrage local
 
-/examples – exemples de questions
+### 1) Installer
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux/Mac
+source .venv/bin/activate
 
-/analyze – analyse de la classe (fichier par défaut)
+pip install -r requirements.txt
 
-/analyze <chemin> – analyse d’un autre fichier
-
-/export – génération des CSV pédagogiques
-
-L’assistant :
-
-gère les entrées multi-lignes,
-
-ne plante jamais (gestion des erreurs),
-
-refuse d’inventer si l’information n’est pas disponible.
-
-🔐 Sécurité & éthique
-
-Données élèves non versionnées (.gitignore)
-
-Clés API sécurisées (.env)
-
-Séparation claire entre :
-
-code,
-
-données,
-
-résultats générés
-
-Respect des principes RGPD et de la propriété intellectuelle
-
-🛠️ Technologies utilisées
-
-Python 3.11
-
-LangChain (RAG)
-
-FAISS (vectorisation locale)
-
-OpenAI API (LLM)
-
-Pandas / NumPy
-
-Chainlit (interface pédagogique)
-
-🚀 Perspectives d’évolution
-
-Ajout de clustering automatique (KMeans, silhouette)
-
-Suivi longitudinal des élèves
-
-Extension à d’autres chapitres (proportionnalité, nombres relatifs)
-
-Interface enseignant enrichie (tableaux de bord)
-
-👨‍🏫 Public cible
-
-Enseignants de mathématiques Collège / Lycée
- 
-Chercheurs en didactique des mathématiques
-
-Encadrants data / IA éducative
-
-📌 Conclusion
-
-Ce projet illustre comment l’IA générative, lorsqu’elle est contrainte par des sources et pilotée par les données, peut devenir un véritable outil pédagogique, au service de la compréhension des élèves et de la décision didactique de l’enseignant.
- 

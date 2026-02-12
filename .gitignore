@@ -2,23 +2,16 @@
 # Secrets
 # ======================
 .env
+.env.*
 
 # ======================
 # Python
 # ======================
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
 .venv/
 venv/
-
-# ======================
-# FAISS / vectorstores
-# ======================
-faiss_store/
-faiss.index
-faiss.index.meta.json
 
 # ======================
 # Chainlit
@@ -27,26 +20,20 @@ faiss.index.meta.json
 .files/
 
 # ======================
-# Jupyter
+# VSCode / OS
 # ======================
-.ipynb_checkpoints/
-
-# ======================
-# OS
-# ======================
+.vscode/
 .DS_Store
 Thumbs.db
 
 # ======================
-# Data sensibles (élèves / corpus)
+# Vectorstores / FAISS
 # ======================
-data/**
-!data/**/.gitkeep
-!data/**/README.md
-!data/Students/sample_responses.csv
-data/Students/responses.csv
-data/Corpus/Cours_Fractions_5e.pdf
-data/Corpus/*.pdf
+vectorstore/
+faiss_store/
+*.faiss
+*.index
+*.meta.json
 
 # ======================
 # Exports générés
@@ -54,12 +41,28 @@ data/Corpus/*.pdf
 exports/
 
 # ======================
-# Answer key (corrigés)
+# Données (élèves / corpus)
+# On versionne uniquement:
+# - le corpus TXT (démo HF)
+# - un sample anonymisé
+# - des .gitkeep si besoin
 # ======================
-answer_key.json
+data/**
+
+!data/**/.gitkeep
+!data/**/README.md
+
+# Corpus : on garde les .txt, on ignore les .pdf
+!data/Corpus/*.txt
+data/Corpus/*.pdf
+
+# Students : on garde sample, on ignore le vrai fichier
+!data/Students/sample_responses.csv
+data/Students/responses.csv
 
 # ======================
-# Docs lourds
+# Corrigés / docs lourdes
 # ======================
+answer_key.json
 *.docx
 _local_backup/

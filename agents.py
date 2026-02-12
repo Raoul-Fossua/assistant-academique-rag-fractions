@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -16,43 +17,38 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-if not OPENAI_API_KEY:
-    raise SystemExit("❌ OPENAI_API_KEY manquant. Mets-le dans .env")
-
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 
-# Dossiers "réels" (chez toi ils sont en CamelCase)
+# ✅ Dossiers (corrigé: Corpus/Students en CamelCase)
 DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "Corpus"))).expanduser().resolve()
 STUDENTS_DIR = Path(os.getenv("STUDENTS_DIR", str(BASE_DIR / "data" / "Students"))).expanduser().resolve()
 
 PDF_NAME = os.getenv("PDF_NAME", "Cours_Fractions_5e.pdf")
 PDF_PATH = (DOCS_DIR / PDF_NAME).resolve()
 
+# Excel optionnels
 ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx"))).expanduser().resolve()
 REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx"))).expanduser().resolve()
 
+# Analyse classe
 RESPONSES_CSV = Path(os.getenv("RESPONSES_CSV", str(STUDENTS_DIR / "responses.csv"))).expanduser().resolve()
+SAMPLE_RESPONSES_CSV = Path(os.getenv("SAMPLE_RESPONSES_CSV", str(STUDENTS_DIR / "sample_responses.csv"))).expanduser().resolve()
 
 EXPORTS_DIR = Path(os.getenv("EXPORTS_DIR", str(BASE_DIR / "exports"))).expanduser().resolve()
 
 OBJ_COUNT = int(os.getenv("OBJ_COUNT", "10"))
 TOP_HARD = int(os.getenv("TOP_HARD", "4"))
 
-# Pondération simple pour décider des groupes (tu peux ajuster plus tard)
 THRESH_A = int(os.getenv("THRESH_A", "9"))   # >=9/10
 THRESH_B = int(os.getenv("THRESH_B", "7"))   # 7-8/10
 THRESH_C = int(os.getenv("THRESH_C", "5"))   # 5-6/10
 THRESH_D = int(os.getenv("THRESH_D", "3"))   # 3-4/10
-# E: 1-2/10
-# F: 0/10 ou très fragile
 
-# Mapping objectifs -> "familles" (profil)
-# À adapter selon tes 10 objectifs réels
 PROFILE_MAP = {
-    "Rep_Score":  [1, 2],          # représentation / sens
-    "Compare_Score": [3, 4],       # comparaison / repérage / ordre
-    "Equiv_Score": [5, 6],         # équivalences / simplification
-    "Ops_Score": [7, 8, 9, 10],    # opérations
+    "Rep_Score": [1, 2],
+    "Compare_Score": [3, 4],
+    "Equiv_Score": [5, 6],
+    "Ops_Score": [7, 8, 9, 10],
 }
 
 GROUP_INFO = {
@@ -61,25 +57,28 @@ GROUP_INFO = {
     "B": ("Consolidation (solides)", "Vert", "#2ECC71",
           "Varier les contextes, automatiser sans perdre le sens : exercices courts, verbalisation de méthode, mini-quiz."),
     "C": ("Renforcement opérations", "Jaune", "#F1C40F",
-          "Ciblage opérations (add/sous/mult/div) : même dénominateur, équivalences, entraînement guidé + erreurs typiques."),
+          "Ciblage opérations : équivalences, entraînement guidé + erreurs typiques."),
     "D": ("Soutien ciblé", "Orange", "#E67E22",
-          "Revoir les procédures une par une avec supports : schémas, étapes explicites, correction commentée, 2–3 exercices types puis transfert."),
+          "Revoir procédures une par une : schémas, étapes explicites, correction commentée, transfert progressif."),
     "E": ("Remédiation représentation (sens)", "Rouge", "#E74C3C",
           "Reprendre le sens : part d’un tout, bande/disque, lecture/écriture, comparaison visuelle, équivalences par découpage."),
     "F": ("Remédiation intensive", "Violet", "#6C3483",
-          "Accompagnement rapproché : micro-objectifs, manipulations, consignes ultra-courtes, rituels, évaluation formative très fréquente."),
+          "Accompagnement rapproché : micro-objectifs, manipulations, consignes courtes, rituels, formative très fréquente."),
 }
 
 # ───────────────────────────── LLM / RAG ─────────────────────────
-from langchain_openai import ChatOpenAI
+def _safe_llm() -> Optional[ChatOpenAI]:
+    if not OPENAI_API_KEY:
+        return None
+    return ChatOpenAI(
+        model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
+        api_key=OPENAI_API_KEY,
+    )
 
-llm = ChatOpenAI(
-    model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-    temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
-    api_key=OPENAI_API_KEY,
-)
+llm = _safe_llm()
 
-from rag_langchain import rag_chain  # doit renvoyer {"answer": str, "source_documents": [...]}
+from rag_langchain import rag_chain  # renvoie {"answer": str, "source_documents": [...]}
 
 # ───────────────────────────── Helpers sources ───────────────────
 def _fmt_source(doc) -> str:
@@ -102,6 +101,9 @@ def _fmt_source(doc) -> str:
             return f"{src_name}|{sheet}|row={row}"
         return f"{src_name}|{sheet}"
 
+    if doc_type == "txt":
+        return f"{src_name}"
+
     return src_name
 
 
@@ -121,16 +123,46 @@ def _sources_block(source_documents: List[Any]) -> str:
 def fractions_rag(question: str) -> str:
     if not DOCS_DIR.exists():
         return f"❌ Dossier corpus introuvable: {DOCS_DIR}"
-    if not PDF_PATH.exists():
-        return f"❌ PDF introuvable: {PDF_PATH}"
+
+    # ✅ Fallback HF : si PDF absent, mais TXT présent → OK
+    txt_candidates = list(DOCS_DIR.glob("*.txt"))
+    has_pdf = PDF_PATH.exists()
+    has_txt = len(txt_candidates) > 0
+
+    if not has_pdf and has_txt:
+        demo_note = "ℹ️ Corpus TXT utilisé (mode démo Hugging Face : PDF non embarqué)."
+    else:
+        demo_note = ""
+
+    if not has_pdf and not has_txt:
+        return (
+            "❌ Corpus introuvable.\n"
+            f"- PDF attendu: {PDF_PATH}\n"
+            f"- ou au moins un .txt dans: {DOCS_DIR}\n"
+        )
+
+    if not OPENAI_API_KEY:
+        return (
+            "❌ OPENAI_API_KEY manquant.\n"
+            "➡️ Sur Hugging Face : Settings → Variables and secrets → Secrets → Add secret\n"
+            "   OPENAI_API_KEY = ta clé\n"
+        )
 
     result = rag_chain({"question": question})
     answer = (result.get("answer") or "").strip() or "Je ne sais pas."
     sources = result.get("source_documents") or []
-    return f"{answer}\n\n{_sources_block(sources)}"
+
+    prefix = (demo_note + "\n\n") if demo_note else ""
+    return f"{prefix}{answer}\n\n{_sources_block(sources)}"
 
 
 def didactic_check(text: str) -> str:
+    if llm is None:
+        return (
+            "❌ OPENAI_API_KEY manquant : impossible d'améliorer didactiquement.\n"
+            "➡️ Ajoute la clé dans les secrets du Space."
+        )
+
     prompt = f"""
 Tu es un didacticien en mathématiques (spécialiste des fractions, niveau 5e).
 Améliore le texte en évitant les "règles magiques".
@@ -165,21 +197,21 @@ def lookup_error_remediation(error_id: str) -> str:
     err_df = _load_excel(ERREURS_XLSX)
     rem_df = _load_excel(REMED_XLSX)
 
-    if err_df.empty or rem_df.empty:
+    if err_df.empty and rem_df.empty:
         return (
-            "❌ Excel introuvables ou vides.\n"
-            f"- {ERREURS_XLSX}\n"
-            f"- {REMED_XLSX}"
+            "ℹ️ Mode démo : pas d’Excel erreurs/remédiations embarqués.\n"
+            f"- Attendu: {ERREURS_XLSX.name} et/ou {REMED_XLSX.name}\n"
+            "➡️ Tu peux les ajouter plus tard (ou les convertir en .txt)."
         )
 
     err_df.columns = [c.strip().lower() for c in err_df.columns]
     rem_df.columns = [c.strip().lower() for c in rem_df.columns]
 
-    if "error_id" not in err_df.columns or "error_id" not in rem_df.columns:
+    if "error_id" not in err_df.columns and "error_id" not in rem_df.columns:
         return "❌ Les fichiers Excel doivent contenir une colonne `error_id`."
 
-    err = err_df[err_df["error_id"].astype(str).str.strip() == eid]
-    rem = rem_df[rem_df["error_id"].astype(str).str.strip() == eid]
+    err = err_df[err_df.get("error_id", pd.Series()).astype(str).str.strip() == eid] if not err_df.empty else pd.DataFrame()
+    rem = rem_df[rem_df.get("error_id", pd.Series()).astype(str).str.strip() == eid] if not rem_df.empty else pd.DataFrame()
 
     if err.empty and rem.empty:
         return f"Je ne trouve pas l’error_id: {eid}"
@@ -214,50 +246,51 @@ class AnalyzeResult:
     recos_groupes: pd.DataFrame
     text_summary: str
     source_path: Path
+    used_sample: bool
 
 
-def _resolve_path(p: str) -> Path:
-    """Accepte un chemin relatif/absolu, avec ou sans guillemets."""
+def _resolve_path(p: str) -> Tuple[Path, bool]:
+    """Retourne (path, used_sample)."""
     p = (p or "").strip().strip('"').strip("'")
-    if not p:
-        return RESPONSES_CSV
-    path = Path(p).expanduser()
-    if not path.is_absolute():
-        path = (BASE_DIR / path).resolve()
-    return path
+
+    if p:
+        path = Path(p).expanduser()
+        if not path.is_absolute():
+            path = (BASE_DIR / path).resolve()
+        return path, False
+
+    if RESPONSES_CSV.exists():
+        return RESPONSES_CSV, False
+
+    if SAMPLE_RESPONSES_CSV.exists():
+        return SAMPLE_RESPONSES_CSV, True
+
+    return RESPONSES_CSV, False
 
 
 def _read_csv_any(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Fichier introuvable: {path}")
-
-    # Essai standard
     try:
         return pd.read_csv(path)
     except Exception:
-        # Essai séparateur ; (français)
         return pd.read_csv(path, sep=";")
 
 
 def _ensure_score_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Vérifie/force OBJx_Score 0/1. Crée Total_Score si absent."""
     df = df.copy()
-
-    # Normalisation légère (garde tes CamelCase)
     for i in range(1, OBJ_COUNT + 1):
         col = f"OBJ{i}_Score"
         if col not in df.columns:
             raise ValueError(
                 f"Colonne manquante: {col}. "
-                "Ajoute OBJx_Score (0/1) pour chaque objectif, ou implémente un scoring automatique."
+                "Ajoute OBJx_Score (0/1) pour chaque objectif."
             )
-        # force 0/1
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int).clip(0, 1)
 
     if "Total_Score" not in df.columns:
         score_cols = [f"OBJ{i}_Score" for i in range(1, OBJ_COUNT + 1)]
         df["Total_Score"] = df[score_cols].sum(axis=1)
-
     return df
 
 
@@ -283,40 +316,24 @@ def _objective_stats(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _pick_group(row: pd.Series) -> str:
-    """Règles simples + orientées pédagogie."""
     total = int(row.get("Total_Score", 0))
     rep = int(row.get("Rep_Score", 0))
     ops = int(row.get("Ops_Score", 0))
 
-    # Très fragiles
     if total <= 1:
         return "F"
-
-    # Remédiation sens si représentation faible
     if total <= 4 and rep <= 0:
         return "E"
-
-    # Remédiation intensive si très faible + ops très faibles
     if total <= 2 and ops <= 1:
         return "F"
-
-    # Approfondissement
     if total >= THRESH_A:
         return "A"
-
-    # Consolidation
     if total >= THRESH_B:
         return "B"
-
-    # Renforcement opérations: global moyen mais ops faibles
     if total >= THRESH_C and ops <= 2:
         return "C"
-
-    # Soutien ciblé
     if total >= THRESH_D:
         return "D"
-
-    # Sinon: E
     return "E"
 
 
@@ -333,7 +350,7 @@ def _add_group_info(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def analyze_class(path_str: str = "") -> AnalyzeResult:
-    path = _resolve_path(path_str)
+    path, used_sample = _resolve_path(path_str)
     df = _read_csv_any(path)
 
     df = _ensure_score_columns(df)
@@ -341,11 +358,8 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
     df = _add_group_info(df)
 
     stats = _objective_stats(df)
-
-    # top objectifs difficiles
     top_hard = stats.sort_values("Taux_reussite_%", ascending=True).head(TOP_HARD)
 
-    # recos par groupe (table)
     grp = (
         df.groupby(["Groupe", "Groupe_Label", "Couleur", "Couleur_HEX", "Reco_Pedago"])
         .size()
@@ -354,10 +368,11 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
         .reset_index(drop=True)
     )
 
-    # résumé texte
     lines = []
+    if used_sample:
+        lines.append("ℹ️ Analyse réalisée sur un échantillon anonymisé (mode démo HF).\n")
+
     lines.append("📊 Analyse par objectif – Fractions 5e")
-    # on affiche dans l’ordre OBJ1..OBJn (plus lisible)
     for i in range(1, OBJ_COUNT + 1):
         row = stats[stats["Objectif"] == f"OBJ{i}"].iloc[0]
         lines.append(
@@ -375,9 +390,9 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
             continue
         sub = grp[grp["Groupe"] == g].iloc[0]
         name, color_name, color_hex, reco = GROUP_INFO[g]
+        emoji = "🟢" if g == "A" else "🟩" if g == "B" else "🟨" if g == "C" else "🟧" if g == "D" else "🟥" if g == "E" else "🟪"
         lines.append(
-            f"{'🟢' if g=='A' else '🟩' if g=='B' else '🟨' if g=='C' else '🟧' if g=='D' else '🟥' if g=='E' else '🟪'} "
-            f"Groupe {g} – {name} ({int(sub['Effectif'])} élèves) — Couleur: {color_name} ({color_hex})\n"
+            f"{emoji} Groupe {g} – {name} ({int(sub['Effectif'])} élèves) — Couleur: {color_name} ({color_hex})\n"
             f"→ Reco: {reco}"
         )
 
@@ -387,11 +402,11 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
         recos_groupes=grp,
         text_summary="\n".join(lines),
         source_path=path,
+        used_sample=used_sample,
     )
 
 
 def export_analysis(last_path: str = "") -> str:
-    """Crée 3 CSV dans exports/ à partir de responses.csv ou d’un chemin fourni."""
     res = analyze_class(last_path)
 
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -401,7 +416,6 @@ def export_analysis(last_path: str = "") -> str:
     p3 = (EXPORTS_DIR / "recommandations_groupes.csv").resolve()
 
     res.stats_objectifs.to_csv(p1, index=False, encoding="utf-8-sig")
-    # Export élèves (les colonnes utiles, mais on garde le reste si tu veux)
     res.df_students.to_csv(p2, index=False, encoding="utf-8-sig")
     res.recos_groupes.to_csv(p3, index=False, encoding="utf-8-sig")
 
@@ -424,32 +438,22 @@ def _is_didactic_request(text: str) -> bool:
 
 
 def _parse_slash_command(msg: str) -> Tuple[str, str]:
-    """
-    Retourne (cmd, arg).
-    Exemple: "/analyze data/Students/ma.csv" -> ("/analyze", "data/Students/ma.csv")
-    """
     tokens = shlex.split(msg)
     cmd = tokens[0].lower() if tokens else ""
     arg = " ".join(tokens[1:]).strip() if len(tokens) > 1 else ""
     return cmd, arg
 
 
-# Mémoire de dernier fichier analysé (pratique pour /export après /analyze path)
 _LAST_ANALYZE_PATH: str = ""
 
 
 def run_agent(message: str) -> str:
-    """
-    Point d’entrée pour Chainlit.
-    Toujours retourner une STRING propre.
-    """
     global _LAST_ANALYZE_PATH
 
     msg = (message or "").strip()
     if not msg:
         return "Écris une question 🙂"
 
-    # 1) Commandes slash
     if msg.startswith("/"):
         cmd, arg = _parse_slash_command(msg)
 
@@ -480,6 +484,7 @@ def run_agent(message: str) -> str:
                     "\n✅ Solutions rapides :\n"
                     "- Vérifie que `OBJ1_Score ... OBJ10_Score` existent (0/1)\n"
                     "- Vérifie le chemin du fichier si tu utilises /analyze <chemin>\n"
+                    "- Sur HF : ajoute sample_responses.csv pour le mode démo\n"
                 )
 
         if cmd == "/export":
@@ -493,16 +498,13 @@ def run_agent(message: str) -> str:
 
         return "❓ Commande inconnue. Tape /help."
 
-    # 2) Lookup erreur excel si error_id=...
     eid = _extract_error_id(msg)
     if eid:
         return lookup_error_remediation(eid)
 
-    # 3) Didactique
     if _is_didactic_request(msg):
         return didactic_check(msg)
 
-    # 4) Par défaut: RAG local
     try:
         return fractions_rag(msg)
     except Exception as e:

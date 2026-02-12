@@ -1,4 +1,3 @@
-# rag_langchain.py
 from __future__ import annotations
 
 import os
@@ -8,44 +7,40 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 from dotenv import load_dotenv
 
-# ───────────────────────────── Env / Paths ─────────────────────────────
-load_dotenv()
-
-BASE_DIR = Path(__file__).resolve().parent
-
-# Corpus
-DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "corpus")))
-
-PDF_PATH = Path(os.getenv("PDF_PATH", str(DOCS_DIR / "Cours_Fractions_5e.pdf")))
-ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx")))
-REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx")))
-
-# IMPORTANT: FAISS_DIR configurable pour éviter les chemins trop longs sous Windows
-FAISS_DIR = Path(os.getenv("FAISS_DIR", str(BASE_DIR / "faiss_store"))).expanduser().resolve()
-FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")
-
-# API key (obligatoire pour embeddings + LLM)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-if not OPENAI_API_KEY:
-    raise SystemExit("❌ OPENAI_API_KEY manquant. Mets-le dans .env (OPENAI_API_KEY=sk-...).")
-
-# ───────────────────────────── LangChain imports ───────────────────────
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
-
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 
+# ───────────────────────────── Env / Paths ─────────────────────────────
+load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+
+# ✅ IMPORTANT: Corpus avec C majuscule (Linux/HF = sensible à la casse)
+DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "Corpus"))).expanduser().resolve()
+
+# PDF / Excel (optionnels sur HF)
+PDF_NAME = os.getenv("PDF_NAME", "Cours_Fractions_5e.pdf")
+PDF_PATH = Path(os.getenv("PDF_PATH", str(DOCS_DIR / PDF_NAME))).expanduser().resolve()
+
+ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx"))).expanduser().resolve()
+REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx"))).expanduser().resolve()
+
+# TXT (recommandé HF)
+# On indexe tous les .txt du dossier corpus, dont corpus_fractions_5e.txt
+# Aucun nom imposé.
+
+# FAISS (écriture requise)
+FAISS_DIR = Path(os.getenv("FAISS_DIR", str(BASE_DIR / "faiss_store"))).expanduser().resolve()
+FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")
+
+# API key
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 # ───────────────────────────── Utils ───────────────────────────────────
 def _ensure_dir_writable(dir_path: Path) -> None:
-    """
-    Vérifie qu'on peut écrire dans un dossier (Windows-friendly).
-    Lève une erreur explicite si non.
-    """
     try:
         dir_path.mkdir(parents=True, exist_ok=True)
         test_file = dir_path / ".write_test"
@@ -62,17 +57,15 @@ def _ensure_dir_writable(dir_path: Path) -> None:
 
 
 def _embeddings() -> OpenAIEmbeddings:
-    """
-    Embeddings OpenAI (modèle moderne).
-    """
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY manquant (Secrets HF ou .env local).")
     model = os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
     return OpenAIEmbeddings(model=model, api_key=OPENAI_API_KEY)
 
 
 def _llm() -> ChatOpenAI:
-    """
-    LLM OpenAI pour la synthèse de réponse.
-    """
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY manquant (Secrets HF ou .env local).")
     model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
     temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
     return ChatOpenAI(model=model, temperature=temperature, api_key=OPENAI_API_KEY)
@@ -80,8 +73,9 @@ def _llm() -> ChatOpenAI:
 
 # ───────────────────────────── Load corpus ─────────────────────────────
 def _load_pdf_docs(pdf_path: Path) -> List[Document]:
+    """Optionnel: si le PDF n'existe pas, on renvoie [] (mode HF)."""
     if not pdf_path.exists():
-        raise FileNotFoundError(f"❌ PDF introuvable: {pdf_path}")
+        return []
 
     loader = PyPDFLoader(str(pdf_path))
     docs = loader.load()  # Document par page
@@ -93,11 +87,30 @@ def _load_pdf_docs(pdf_path: Path) -> List[Document]:
     return docs
 
 
+def _load_txt_docs(docs_dir: Path) -> List[Document]:
+    """Charge tous les .txt du dossier corpus."""
+    if not docs_dir.exists():
+        return []
+
+    docs: List[Document] = []
+    for p in sorted(docs_dir.glob("*.txt")):
+        txt = p.read_text(encoding="utf-8", errors="ignore").strip()
+        if not txt:
+            continue
+        docs.append(
+            Document(
+                page_content=txt,
+                metadata={
+                    "type": "txt",
+                    "source": str(p),
+                },
+            )
+        )
+    return docs
+
+
 def _load_excel_as_docs(xlsx_path: Path, default_type: str) -> List[Document]:
-    """
-    Convertit chaque ligne Excel en Document.
-    On prend la première feuille par défaut.
-    """
+    """Optionnel: si xlsx absent, []"""
     if not xlsx_path.exists():
         return []
 
@@ -123,10 +136,10 @@ def _load_excel_as_docs(xlsx_path: Path, default_type: str) -> List[Document]:
                 page_content=content,
                 metadata={
                     "type": "excel",
-                    "subtype": default_type,  # erreurs / remediations
+                    "subtype": default_type,
                     "source": str(xlsx_path),
                     "sheet": sheet,
-                    "row": int(idx) + 2,  # header + 1-based
+                    "row": int(idx) + 2,
                 },
             )
         )
@@ -134,10 +147,11 @@ def _load_excel_as_docs(xlsx_path: Path, default_type: str) -> List[Document]:
 
 
 def _load_corpus_docs() -> List[Document]:
+    txt_docs = _load_txt_docs(DOCS_DIR)
     pdf_docs = _load_pdf_docs(PDF_PATH)
     err_docs = _load_excel_as_docs(ERREURS_XLSX, default_type="erreurs")
     rem_docs = _load_excel_as_docs(REMED_XLSX, default_type="remediations")
-    return pdf_docs + err_docs + rem_docs
+    return txt_docs + pdf_docs + err_docs + rem_docs
 
 
 # ───────────────────────────── Chunking ────────────────────────────────
@@ -155,14 +169,18 @@ _VECTORSTORE: Optional[FAISS] = None
 
 def _build_vectorstore() -> FAISS:
     docs = _load_corpus_docs()
-    chunks = _split_docs(docs)
+    if not docs:
+        raise RuntimeError(
+            "❌ Aucun corpus trouvé.\n"
+            f"- Attendu au moins un .txt dans: {DOCS_DIR}\n"
+            f"- (PDF optionnel): {PDF_PATH}\n"
+        )
 
+    chunks = _split_docs(docs)
     store = FAISS.from_documents(chunks, _embeddings())
 
-    # ✅ CRUCIAL: créer le dossier avant save_local
     FAISS_DIR.mkdir(parents=True, exist_ok=True)
     _ensure_dir_writable(FAISS_DIR)
-
     store.save_local(str(FAISS_DIR), index_name=FAISS_INDEX_NAME)
     return store
 
@@ -220,6 +238,8 @@ def _format_context(docs: List[Document]) -> str:
             sheet = md.get("sheet", "?")
             row = md.get("row", "?")
             header = f"[XLSX {src} | {sheet} | row={row}]"
+        elif t == "txt":
+            header = f"[TXT {src}]"
         else:
             header = f"[{t} {src}]"
 
@@ -243,17 +263,12 @@ def rag_chain(inputs: Dict[str, Any]) -> Dict[str, Any]:
         search_kwargs={"k": int(os.getenv("RETRIEVER_K", "5"))},
     )
 
-    # ✅ LangChain récent: on utilise invoke()
     source_docs = retriever.invoke(question)
-
     context = _format_context(source_docs)
 
     llm = _llm()
     prompt = _RAG_PROMPT.format_messages(question=question, context=context)
     msg = llm.invoke(prompt)
-    answer = (getattr(msg, "content", None) or "").strip()
-
-    if not answer:
-        answer = "Je ne sais pas."
+    answer = (getattr(msg, "content", None) or "").strip() or "Je ne sais pas."
 
     return {"answer": answer, "source_documents": source_docs}
