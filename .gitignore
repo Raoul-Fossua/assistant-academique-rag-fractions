@@ -63,8 +63,12 @@ data/**
 data/Corpus/*.pdf
 
 # Students : on garde sample, on ignore le vrai fichier
-!data/Students/sample_responses.csv
+
 data/Students/responses.csv
+!data/Students/
+!data/Students/responses.csv
+!data/Students/sample_responses.csv
+!data/Students/.gitkeep
 
 # ======================
 # Corrigés / docs lourdes
