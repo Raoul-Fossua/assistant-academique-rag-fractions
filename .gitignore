@@ -66,3 +66,5 @@ data/Students/responses.csv
 answer_key.json
 *.docx
 _local_backup/
+
+only)*
