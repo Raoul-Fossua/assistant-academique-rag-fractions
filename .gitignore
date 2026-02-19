@@ -78,3 +78,8 @@ answer_key.json
 _local_backup/
 
 only)*
+.env
+faiss_store/
+exports/
+__pycache__/
+*.pyc
