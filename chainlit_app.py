@@ -4,11 +4,7 @@ import shlex
 from typing import List, Tuple
 
 import chainlit as cl
-
-# agents.py doit exposer:
-#   run_agent(message: str) -> str
 from agents import run_agent
-
 
 WELCOME = """👋 Bonjour ! **Assistant pédagogique intelligent – Fractions (5e)**
 
@@ -25,15 +21,14 @@ Commandes utiles :
 - `/export` (génère 3 CSV dans `exports/`)
 """
 
-
 HELP = """📌 **Aide rapide**
 
 ✅ Exemples :
-- *Résume les opérations sur les fractions.*
-- *Explique “mettre au même dénominateur” avec du sens.*
-- *Pourquoi certains élèves font 1/2 + 1/3 = 2/5 ?*
-- *Rends didactique : “on met au même dénominateur”.*
-- *Analyse ma classe (responses.csv).*  
+- Résume les opérations sur les fractions.
+- Explique “mettre au même dénominateur” avec du sens.
+- Pourquoi certains élèves font 1/2 + 1/3 = 2/5 ?
+- Rends didactique : “on met au même dénominateur”.
+- Analyse ma classe (responses.csv).
 
 🧾 Sources :
 Quand je réponds via le corpus, j’ajoute un bloc **Sources** (PDF/pages, TXT, Excel, etc.).
@@ -41,32 +36,30 @@ Quand je réponds via le corpus, j’ajoute un bloc **Sources** (PDF/pages, TXT,
 ⚠️ Si le corpus ne contient pas l’information, je dois dire : **« Je ne sais pas. »**
 """
 
-
 EXAMPLES = """🧪 **Exemples de messages à tester**
 
 1) Notions
-- *Définis une fraction et donne un exemple.*
-- *Explique la simplification d’une fraction.*
+- Définis une fraction et donne un exemple.
+- Explique la simplification d’une fraction.
 
 2) Opérations
-- *Comment additionner 1/2 et 3/4 ?*
-- *Explique la multiplication de fractions avec un schéma mental.*
+- Comment additionner 1/2 et 3/4 ?
+- Explique la multiplication de fractions avec un schéma mental.
 
 3) Erreurs fréquentes
-- *Pourquoi 1/2 + 1/3 = 2/5 est faux ?*
-- *Pourquoi certains élèves additionnent les dénominateurs ?*
+- Pourquoi 1/2 + 1/3 = 2/5 est faux ?
+- Pourquoi certains élèves additionnent les dénominateurs ?
 
 4) Didactique
-- *Rends didactique : “mettre au même dénominateur”.*
+- Rends didactique : “mettre au même dénominateur”.
 
 5) Classe
-- */analyze*
-- */export*
+- /analyze
+- /export
 """
 
 
 def _split_user_message(content: str) -> List[str]:
-    """Découpe un message en lignes non vides (gère les copier-coller multi-commandes)."""
     if not content:
         return []
     lines = [ln.strip() for ln in content.splitlines()]
@@ -74,13 +67,6 @@ def _split_user_message(content: str) -> List[str]:
 
 
 def _parse_command(line: str) -> Tuple[str, str]:
-    """
-    Parse une commande:
-      /analyze
-      /analyze data/Students/responses.csv
-      /analyze "C:\\path with spaces\\file.csv"
-    Retourne: (cmd, arg)
-    """
     tokens = shlex.split(line)
     cmd = tokens[0].lower() if tokens else ""
     arg = " ".join(tokens[1:]).strip() if len(tokens) > 1 else ""
@@ -88,19 +74,22 @@ def _parse_command(line: str) -> Tuple[str, str]:
 
 
 async def _handle_one_line(line: str) -> None:
-    """Traite une ligne: commande ou question."""
-    if line.lower() in {"/help", "help"}:
+    # mini-raccourcis
+    low = line.lower().strip()
+
+    if low in {"/help", "help"}:
         await cl.Message(content=HELP).send()
         return
 
-    if line.lower() in {"/examples", "examples"}:
+    if low in {"/examples", "examples"}:
         await cl.Message(content=EXAMPLES).send()
         return
 
-    if line.lower() in {"/start", "start"}:
+    if low in {"/start", "start"}:
         await cl.Message(content=WELCOME).send()
         return
 
+    # commandes
     if line.startswith("/"):
         cmd, arg = _parse_command(line)
 
@@ -115,25 +104,24 @@ async def _handle_one_line(line: str) -> None:
             await cl.Message(content=answer).send()
             return
 
-        await cl.Message(
-            content="❓ Commande inconnue.\nEssaye `/help` pour voir les commandes disponibles."
-        ).send()
+        # laisse agents.py gérer /help /examples etc
+        answer = run_agent(line)
+        await cl.Message(content=answer).send()
         return
 
+    # question normale (RAG/didactique)
     thinking = cl.Message(content="⏳ Je réfléchis…")
     await thinking.send()
 
     try:
-        answer = run_agent(line)
-        if not answer or not answer.strip():
-            answer = "Désolé, je n’ai pas pu générer de réponse."
-        thinking.content = answer
+        answer = run_agent(line).strip()
+        thinking.content = answer or "Désolé, je n’ai pas pu générer de réponse."
         await thinking.update()
     except Exception as e:
         thinking.content = (
             "⚠️ **Erreur interne** pendant le traitement.\n\n"
             f"**Détail :** `{type(e).__name__}`\n"
-            "👉 Astuce : vérifie tes secrets HF (OPENAI_API_KEY), et que le corpus TXT est présent.\n"
+            "👉 Vérifie : OPENAI_API_KEY, présence du corpus TXT, et droits d’écriture FAISS.\n"
         )
         await thinking.update()
         raise
@@ -147,7 +135,6 @@ async def on_chat_start():
 @cl.on_message
 async def on_message(message: cl.Message):
     lines = _split_user_message(message.content)
-
     if not lines:
         await cl.Message(content="Écris une question 🙂").send()
         return

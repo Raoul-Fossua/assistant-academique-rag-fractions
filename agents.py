@@ -17,20 +17,16 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 
-# ✅ Dossiers (corrigé: Corpus/Students en CamelCase)
 DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "Corpus"))).expanduser().resolve()
 STUDENTS_DIR = Path(os.getenv("STUDENTS_DIR", str(BASE_DIR / "data" / "Students"))).expanduser().resolve()
 
 PDF_NAME = os.getenv("PDF_NAME", "Cours_Fractions_5e.pdf")
 PDF_PATH = (DOCS_DIR / PDF_NAME).resolve()
 
-# Excel optionnels
 ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx"))).expanduser().resolve()
 REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx"))).expanduser().resolve()
 
-# Analyse classe
 RESPONSES_CSV = Path(os.getenv("RESPONSES_CSV", str(STUDENTS_DIR / "responses.csv"))).expanduser().resolve()
 SAMPLE_RESPONSES_CSV = Path(os.getenv("SAMPLE_RESPONSES_CSV", str(STUDENTS_DIR / "sample_responses.csv"))).expanduser().resolve()
 
@@ -39,10 +35,10 @@ EXPORTS_DIR = Path(os.getenv("EXPORTS_DIR", str(BASE_DIR / "exports"))).expandus
 OBJ_COUNT = int(os.getenv("OBJ_COUNT", "10"))
 TOP_HARD = int(os.getenv("TOP_HARD", "4"))
 
-THRESH_A = int(os.getenv("THRESH_A", "9"))   # >=9/10
-THRESH_B = int(os.getenv("THRESH_B", "7"))   # 7-8/10
-THRESH_C = int(os.getenv("THRESH_C", "5"))   # 5-6/10
-THRESH_D = int(os.getenv("THRESH_D", "3"))   # 3-4/10
+THRESH_A = int(os.getenv("THRESH_A", "9"))
+THRESH_B = int(os.getenv("THRESH_B", "7"))
+THRESH_C = int(os.getenv("THRESH_C", "5"))
+THRESH_D = int(os.getenv("THRESH_D", "3"))
 
 PROFILE_MAP = {
     "Rep_Score": [1, 2],
@@ -76,9 +72,10 @@ def _safe_llm() -> Optional[ChatOpenAI]:
         api_key=OPENAI_API_KEY,
     )
 
+
 llm = _safe_llm()
 
-from rag_langchain import rag_chain  # renvoie {"answer": str, "source_documents": [...]}
+from rag_langchain import rag_chain  # noqa: E402
 
 # ───────────────────────────── Helpers sources ───────────────────
 def _fmt_source(doc) -> str:
@@ -124,15 +121,13 @@ def fractions_rag(question: str) -> str:
     if not DOCS_DIR.exists():
         return f"❌ Dossier corpus introuvable: {DOCS_DIR}"
 
-    # ✅ Fallback HF : si PDF absent, mais TXT présent → OK
     txt_candidates = list(DOCS_DIR.glob("*.txt"))
     has_pdf = PDF_PATH.exists()
     has_txt = len(txt_candidates) > 0
 
+    demo_note = ""
     if not has_pdf and has_txt:
         demo_note = "ℹ️ Corpus TXT utilisé (mode démo Hugging Face : PDF non embarqué)."
-    else:
-        demo_note = ""
 
     if not has_pdf and not has_txt:
         return (
@@ -250,9 +245,7 @@ class AnalyzeResult:
 
 
 def _resolve_path(p: str) -> Tuple[Path, bool]:
-    """Retourne (path, used_sample)."""
     p = (p or "").strip().strip('"').strip("'")
-
     if p:
         path = Path(p).expanduser()
         if not path.is_absolute():
@@ -261,7 +254,6 @@ def _resolve_path(p: str) -> Tuple[Path, bool]:
 
     if RESPONSES_CSV.exists():
         return RESPONSES_CSV, False
-
     if SAMPLE_RESPONSES_CSV.exists():
         return SAMPLE_RESPONSES_CSV, True
 
@@ -311,8 +303,7 @@ def _objective_stats(df: pd.DataFrame) -> pd.DataFrame:
         ko = n - ok
         pct = (ok / n * 100.0) if n else 0.0
         rows.append({"Objectif": f"OBJ{i}", "Reussites": ok, "Echecs": ko, "Taux_reussite_%": round(pct, 1)})
-    stats = pd.DataFrame(rows).sort_values("Taux_reussite_%", ascending=True).reset_index(drop=True)
-    return stats
+    return pd.DataFrame(rows).sort_values("Taux_reussite_%", ascending=True).reset_index(drop=True)
 
 
 def _pick_group(row: pd.Series) -> str:
@@ -408,7 +399,6 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
 
 def export_analysis(last_path: str = "") -> str:
     res = analyze_class(last_path)
-
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     p1 = (EXPORTS_DIR / "stats_objectifs.csv").resolve()
