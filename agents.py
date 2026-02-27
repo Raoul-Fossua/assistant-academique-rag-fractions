@@ -3,13 +3,13 @@ from __future__ import annotations
 import os
 import re
 import shlex
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -62,20 +62,91 @@ GROUP_INFO = {
           "Accompagnement rapproché : micro-objectifs, manipulations, consignes courtes, rituels, formative très fréquente."),
 }
 
-# ───────────────────────────── LLM / RAG ─────────────────────────
-def _safe_llm() -> Optional[ChatOpenAI]:
+# ───────────────────────────── LLM (LAZY & SAFE) ─────────────────────────
+# Objectif : NE PAS casser Chainlit à l'import si OpenAI/langchain/httpx ont un conflit
+_LLM_SINGLETON = None
+_LLM_INIT_ERROR: Optional[str] = None
+
+
+def _build_llm():
+    """
+    Construit ChatOpenAI de manière robuste :
+    - lazy init (appelé seulement quand nécessaire)
+    - essaie de passer un client OpenAI basé sur httpx.Client
+      (contourne plusieurs bugs 'proxies/httpx' selon versions)
+    - si ça échoue → on stocke l'erreur et on renvoie None
+    """
+    global _LMM_SINGLETON, _LLM_INIT_ERROR  # type: ignore[name-defined]
+
     if not OPENAI_API_KEY:
+        _LLM_INIT_ERROR = "OPENAI_API_KEY manquant."
         return None
-    return ChatOpenAI(
-        model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-        temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
-        api_key=OPENAI_API_KEY,
-    )
+
+    try:
+        from langchain_openai import ChatOpenAI  # import ici = pas de crash à l'import du module
+    except Exception as e:
+        _LLM_INIT_ERROR = f"Impossible d'importer langchain_openai.ChatOpenAI: {type(e).__name__}: {e}"
+        return None
+
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    temperature = float(os.getenv("LLM_TEMPERATURE", "0"))
+
+    # 1) Tentative "safe client" (évite pas mal de problèmes proxies/httpx)
+    try:
+        import httpx
+        from openai import OpenAI
+
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(60.0, connect=20.0),
+            follow_redirects=True,
+        )
+
+        oai_client = OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
+
+        # Adapter selon la signature réelle de ChatOpenAI (ça bouge selon versions)
+        sig = inspect.signature(ChatOpenAI.__init__)
+        kwargs = dict(model=model, temperature=temperature, api_key=OPENAI_API_KEY)
+
+        if "client" in sig.parameters:
+            kwargs["client"] = oai_client
+        elif "openai_client" in sig.parameters:
+            kwargs["openai_client"] = oai_client
+        elif "http_client" in sig.parameters:
+            # Certaines versions acceptent directement http_client
+            kwargs["http_client"] = http_client
+
+        return ChatOpenAI(**kwargs)
+
+    except Exception:
+        # 2) Fallback simple (peut encore planter si ton environnement est "mauvais")
+        try:
+            return ChatOpenAI(
+                model=model,
+                temperature=temperature,
+                api_key=OPENAI_API_KEY,
+            )
+        except Exception as e2:
+            _LLM_INIT_ERROR = (
+                f"ChatOpenAI init failed: {type(e2).__name__}: {e2}\n"
+                "Cause fréquente: conflit openai/httpx autour de 'proxies'.\n"
+                "Fix recommandé: pin httpx==0.27.2 OU upgrade openai >= 1.55.3."
+            )
+            return None
 
 
-llm = _safe_llm()
+def get_llm():
+    global _LLM_SINGLETON, _LLM_INIT_ERROR
+    if _LLM_SINGLETON is not None:
+        return _LLM_SINGLETON
+    if _LLM_INIT_ERROR is not None:
+        return None
+    _LLM_SINGLETON = _build_llm()
+    return _LLM_SINGLETON
 
+
+# Import RAG APRES config / LLM lazy (important)
 from rag_langchain import rag_chain  # noqa: E402
+
 
 # ───────────────────────────── Helpers sources ───────────────────
 def _fmt_source(doc) -> str:
@@ -116,6 +187,7 @@ def _sources_block(source_documents: List[Any]) -> str:
     refs = refs[:10]
     return "Sources: " + " ; ".join(f"[{r}]" for r in refs)
 
+
 # ───────────────────────────── Core "fractions" ──────────────────
 def fractions_rag(question: str) -> str:
     if not DOCS_DIR.exists():
@@ -127,7 +199,7 @@ def fractions_rag(question: str) -> str:
 
     demo_note = ""
     if not has_pdf and has_txt:
-        demo_note = "ℹ️ Corpus TXT utilisé (mode démo Hugging Face : PDF non embarqué)."
+        demo_note = "ℹ️ Corpus TXT utilisé (mode démo : PDF non embarqué)."
 
     if not has_pdf and not has_txt:
         return (
@@ -152,10 +224,15 @@ def fractions_rag(question: str) -> str:
 
 
 def didactic_check(text: str) -> str:
+    llm = get_llm()
     if llm is None:
+        err = _LLM_INIT_ERROR or "Impossible d'initialiser le LLM."
         return (
-            "❌ OPENAI_API_KEY manquant : impossible d'améliorer didactiquement.\n"
-            "➡️ Ajoute la clé dans les secrets du Space."
+            "❌ Impossible d'améliorer didactiquement (LLM indisponible).\n"
+            f"Détail: {err}\n"
+            "\n✅ Fix conseillé (Windows) :\n"
+            "- soit: pip install \"httpx==0.27.2\" --force-reinstall\n"
+            "- soit: pip install -U openai\n"
         )
 
     prompt = f"""
@@ -205,8 +282,18 @@ def lookup_error_remediation(error_id: str) -> str:
     if "error_id" not in err_df.columns and "error_id" not in rem_df.columns:
         return "❌ Les fichiers Excel doivent contenir une colonne `error_id`."
 
-    err = err_df[err_df.get("error_id", pd.Series()).astype(str).str.strip() == eid] if not err_df.empty else pd.DataFrame()
-    rem = rem_df[rem_df.get("error_id", pd.Series()).astype(str).str.strip() == eid] if not rem_df.empty else pd.DataFrame()
+    # Filtrage robuste
+    if not err_df.empty and "error_id" in err_df.columns:
+        err_mask = err_df["error_id"].astype(str).str.strip().eq(eid)
+        err = err_df[err_mask]
+    else:
+        err = pd.DataFrame()
+
+    if not rem_df.empty and "error_id" in rem_df.columns:
+        rem_mask = rem_df["error_id"].astype(str).str.strip().eq(eid)
+        rem = rem_df[rem_mask]
+    else:
+        rem = pd.DataFrame()
 
     if err.empty and rem.empty:
         return f"Je ne trouve pas l’error_id: {eid}"
@@ -232,6 +319,7 @@ def lookup_error_remediation(error_id: str) -> str:
         out.append(f"Source: [{REMED_XLSX.name}]")
 
     return "\n".join(out)
+
 
 # ───────────────────────────── Analyse classe ────────────────────
 @dataclass
@@ -361,7 +449,7 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
 
     lines = []
     if used_sample:
-        lines.append("ℹ️ Analyse réalisée sur un échantillon anonymisé (mode démo HF).\n")
+        lines.append("ℹ️ Analyse réalisée sur un échantillon anonymisé (mode démo).\n")
 
     lines.append("📊 Analyse par objectif – Fractions 5e")
     for i in range(1, OBJ_COUNT + 1):
@@ -376,14 +464,14 @@ def analyze_class(path_str: str = "") -> AnalyzeResult:
         lines.append(f"{r['Objectif']} – {r['Taux_reussite_%']} %")
 
     lines.append("\n👥 Groupes de besoin (score + profil)")
+    emojis = {"A": "🟢", "B": "🟩", "C": "🟨", "D": "🟧", "E": "🟥", "F": "🟪"}
     for g in ["A", "B", "C", "D", "E", "F"]:
         if g not in set(grp["Groupe"]):
             continue
         sub = grp[grp["Groupe"] == g].iloc[0]
         name, color_name, color_hex, reco = GROUP_INFO[g]
-        emoji = "🟢" if g == "A" else "🟩" if g == "B" else "🟨" if g == "C" else "🟧" if g == "D" else "🟥" if g == "E" else "🟪"
         lines.append(
-            f"{emoji} Groupe {g} – {name} ({int(sub['Effectif'])} élèves) — Couleur: {color_name} ({color_hex})\n"
+            f"{emojis.get(g,'👥')} Groupe {g} – {name} ({int(sub['Effectif'])} élèves) — Couleur: {color_name} ({color_hex})\n"
             f"→ Reco: {reco}"
         )
 
@@ -413,6 +501,7 @@ def export_analysis(last_path: str = "") -> str:
         "✅ Export terminé (3 fichiers créés dans exports/) :\n"
         f"{p1}\n{p2}\n{p3}"
     )
+
 
 # ───────────────────────────── Command router ────────────────────
 def _extract_error_id(text: str) -> Optional[str]:
@@ -474,7 +563,7 @@ def run_agent(message: str) -> str:
                     "\n✅ Solutions rapides :\n"
                     "- Vérifie que `OBJ1_Score ... OBJ10_Score` existent (0/1)\n"
                     "- Vérifie le chemin du fichier si tu utilises /analyze <chemin>\n"
-                    "- Sur HF : ajoute sample_responses.csv pour le mode démo\n"
+                    "- Ajoute sample_responses.csv pour le mode démo si besoin\n"
                 )
 
         if cmd == "/export":

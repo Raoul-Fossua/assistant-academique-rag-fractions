@@ -1,47 +1,107 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-import pandas as pd
-from dotenv import load_dotenv
+# =============================================================================
+# rag_langchain.py — Version robuste (anti-crash proxies/httpx/openai)
+# -----------------------------------------------------------------------------
+# Objectif:
+# - Ne PAS crasher si certaines dépendances ne sont pas installées
+# - RAG + FAISS + logs [PERF] (jury-ready)
+# - Fallback embeddings: OpenAI -> (sinon) HuggingFace si disponible
+# - FIX majeur : init OpenAI/ChatOpenAI/OpenAIEmbeddings "safe" (httpx client)
+# =============================================================================
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# ───────────────────────────── Optional imports ─────────────────────────────
+def _try_import_dotenv() -> None:
+    try:
+        from dotenv import load_dotenv  # type: ignore
+
+        load_dotenv()
+    except Exception:
+        pass
+
+
+def _try_import_pandas():
+    try:
+        import pandas as pd  # type: ignore
+
+        return pd
+    except Exception:
+        return None
+
+
+def _try_import_pypdf_loader():
+    """
+    PyPDFLoader est dans langchain_community. Si pas dispo, on désactive PDF.
+    """
+    try:
+        from langchain_community.document_loaders import PyPDFLoader  # type: ignore
+
+        return PyPDFLoader
+    except Exception:
+        return None
+
+
+def _try_import_hf_embeddings():
+    """
+    Fallback embeddings HuggingFace si OpenAI absent.
+    """
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
+
+        return HuggingFaceEmbeddings
+    except Exception:
+        try:
+            from langchain_community.embeddings import HuggingFaceEmbeddings  # type: ignore
+
+            return HuggingFaceEmbeddings
+        except Exception:
+            return None
+
+
+# Core LangChain
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.vectorstores import FAISS
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# =============================================================================
-# rag_langchain.py
-# -----------------------------------------------------------------------------
-# RAG robuste + logs "jury DS" (PERF/CONFIG/CORPUS) sans casser le pipeline:
-# - mêmes signatures (rag_chain(inputs)->dict)
-# - mêmes env vars que ton projet
-# - logs activables/désactivables par env (par défaut ON en HF)
-# - logs lisibles + exploitables pour Chapitre 5 (latence + paramètres)
-# =============================================================================
+# Vectorstore FAISS
+try:
+    from langchain_community.vectorstores import FAISS  # type: ignore
+except Exception as e:
+    raise RuntimeError(
+        "Dépendance manquante: langchain_community (pour FAISS).\n"
+        "Installe: pip install langchain-community faiss-cpu"
+    ) from e
+
+# OpenAI (optionnel)
+try:
+    from langchain_openai import ChatOpenAI, OpenAIEmbeddings  # type: ignore
+except Exception:
+    ChatOpenAI = None  # type: ignore
+    OpenAIEmbeddings = None  # type: ignore
+
 
 # ───────────────────────────── Env / Paths ─────────────────────────────
-load_dotenv()
+_try_import_dotenv()
+
 BASE_DIR = Path(__file__).resolve().parent
 
-# Corpus (Linux/HF sensible à la casse)
 DOCS_DIR = Path(os.getenv("DOCS_DIR", str(BASE_DIR / "data" / "Corpus"))).expanduser().resolve()
 
-# PDF / Excel (optionnels)
 PDF_NAME = os.getenv("PDF_NAME", "Cours_Fractions_5e.pdf")
 PDF_PATH = Path(os.getenv("PDF_PATH", str(DOCS_DIR / PDF_NAME))).expanduser().resolve()
 
 ERREURS_XLSX = Path(os.getenv("ERREURS_XLSX", str(DOCS_DIR / "Erreurs_Fractions_5e.xlsx"))).expanduser().resolve()
 REMED_XLSX = Path(os.getenv("REMED_XLSX", str(DOCS_DIR / "Remediations_Fractions_5e.xlsx"))).expanduser().resolve()
 
-# FAISS persistant (HF: écriture autorisée dans /app)
 FAISS_DIR = Path(os.getenv("FAISS_DIR", str(BASE_DIR / "faiss_store"))).expanduser().resolve()
 FAISS_INDEX_NAME = os.getenv("FAISS_INDEX_NAME", "index")
 FINGERPRINT_PATH = FAISS_DIR / "fingerprint.txt"
@@ -49,35 +109,29 @@ FINGERPRINT_PATH = FAISS_DIR / "fingerprint.txt"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 # ───────────────────────────── Logging / Perf ──────────────────────────
-# Active/désactive logs perf : 1/0. Par défaut: 1 sur HF, 0 en local si tu veux.
-PERF_LOG = os.getenv("PERF_LOG", "1").strip() not in {"0", "false", "False", "no", "NO"}
-PERF_LOG_LEVEL = os.getenv("PERF_LOG_LEVEL", "INFO").strip().upper()  # INFO|DEBUG
-PERF_LOG_JSON = os.getenv("PERF_LOG_JSON", "0").strip() in {"1", "true", "True", "yes", "YES"}
+PERF_LOG = os.getenv("PERF_LOG", "1").strip().lower() not in {"0", "false", "no"}
+PERF_LOG_JSON = os.getenv("PERF_LOG_JSON", "0").strip().lower() in {"1", "true", "yes"}
 
-# Identifiant utile pour regrouper les logs (build/tag)
-APP_VERSION = os.getenv("APP_VERSION", "").strip()  # optionnel
-GIT_SHA = os.getenv("GIT_SHA", "").strip()          # optionnel
+APP_VERSION = os.getenv("APP_VERSION", "").strip()
+GIT_SHA = os.getenv("GIT_SHA", "").strip()
+
 
 def _log(event: str, payload: Dict[str, Any]) -> None:
-    """Logs stables et faciles à grep : prefix [PERF] + event."""
     if not PERF_LOG:
         return
-    base = {
-        "event": event,
-        "ts": round(time.time(), 3),
-    }
+    base = {"event": event, "ts": round(time.time(), 3)}
     if APP_VERSION:
         base["app_version"] = APP_VERSION
     if GIT_SHA:
         base["git_sha"] = GIT_SHA
 
     data = {**base, **payload}
+
     if PERF_LOG_JSON:
-        print("[PERF] " + json.dumps(data, ensure_ascii=False))
+        print("[PERF] " + json.dumps(data, ensure_ascii=False), flush=True)
     else:
-        # Format "clé=val" bien lisible et stable
         parts = [f"{k}={data[k]}" for k in sorted(data.keys())]
-        print("[PERF] " + " ".join(parts))
+        print("[PERF] " + " ".join(parts), flush=True)
 
 
 # ───────────────────────────── Utils ───────────────────────────────────
@@ -85,22 +139,10 @@ def _ensure_dir_writable(dir_path: Path) -> None:
     dir_path.mkdir(parents=True, exist_ok=True)
     test_file = dir_path / ".write_test"
     test_file.write_text("ok", encoding="utf-8")
-    test_file.unlink(missing_ok=True)
-
-
-def _embeddings() -> OpenAIEmbeddings:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY manquant (Secrets HF ou .env local).")
-    model = os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
-    return OpenAIEmbeddings(model=model, api_key=OPENAI_API_KEY)
-
-
-def _llm() -> ChatOpenAI:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY manquant (Secrets HF ou .env local).")
-    model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-    temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
-    return ChatOpenAI(model=model, temperature=temperature, api_key=OPENAI_API_KEY)
+    try:
+        test_file.unlink()
+    except Exception:
+        pass
 
 
 def _corpus_fingerprint() -> str:
@@ -116,21 +158,22 @@ def _corpus_fingerprint() -> str:
     for p in DOCS_DIR.glob("*"):
         if p.suffix.lower() in {".txt", ".pdf", ".xlsx"}:
             files.append(p)
+
     for p in sorted(files, key=lambda x: x.name.lower()):
-        st = p.stat()
-        h.update(p.name.encode("utf-8"))
-        h.update(str(st.st_mtime_ns).encode("utf-8"))
-        h.update(str(st.st_size).encode("utf-8"))
+        try:
+            st = p.stat()
+            h.update(p.name.encode("utf-8"))
+            h.update(str(st.st_mtime_ns).encode("utf-8"))
+            h.update(str(st.st_size).encode("utf-8"))
+        except Exception:
+            continue
+
     return h.hexdigest()[:16]
 
 
 def _corpus_stats() -> Dict[str, Any]:
-    """Stats simples, utiles pour Chapitre 5 (taille corpus, nb fichiers, etc.)."""
     stats: Dict[str, Any] = {
         "docs_dir_exists": DOCS_DIR.exists(),
-        "pdf_exists": PDF_PATH.exists(),
-        "erreurs_xlsx_exists": ERREURS_XLSX.exists(),
-        "remed_xlsx_exists": REMED_XLSX.exists(),
         "n_txt": 0,
         "n_pdf": 0,
         "n_xlsx": 0,
@@ -157,45 +200,208 @@ def _corpus_stats() -> Dict[str, Any]:
     return stats
 
 
+# ───────────────────────────── OpenAI SAFE CLIENT ─────────────────────────
+# Le bug que tu vois vient souvent de versions openai/httpx où "proxies" a changé.
+# On contourne en construisant un client OpenAI explicite avec httpx.Client.
+_OPENAI_CLIENT = None
+_OPENAI_HTTPX = None
+_OPENAI_CLIENT_ERR: Optional[str] = None
+
+
+def _get_openai_client():
+    """
+    Retourne un client OpenAI "safe" (OpenAI(api_key=..., http_client=httpx.Client(...))).
+    Si openai n'est pas dispo ou si ça échoue -> None, avec _OPENAI_CLIENT_ERR rempli.
+    """
+    global _OPENAI_CLIENT, _OPENAI_HTTPX, _OPENAI_CLIENT_ERR
+
+    if _OPENAI_CLIENT is not None:
+        return _OPENAI_CLIENT
+    if _OPENAI_CLIENT_ERR is not None:
+        return None
+
+    if not OPENAI_API_KEY:
+        _OPENAI_CLIENT_ERR = "OPENAI_API_KEY manquant."
+        return None
+
+    try:
+        import httpx
+        from openai import OpenAI
+
+        _OPENAI_HTTPX = httpx.Client(
+            timeout=httpx.Timeout(60.0, connect=20.0),
+            follow_redirects=True,
+        )
+        _OPENAI_CLIENT = OpenAI(api_key=OPENAI_API_KEY, http_client=_OPENAI_HTTPX)
+        return _OPENAI_CLIENT
+
+    except Exception as e:
+        _OPENAI_CLIENT_ERR = f"OpenAI client init failed: {type(e).__name__}: {e}"
+        return None
+
+
+def _inject_client_kwargs(cls, base_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Injecte (si possible) le client OpenAI et/ou le http_client dans les kwargs,
+    selon la signature de la classe LangChain (qui varie selon versions).
+    """
+    kwargs = dict(base_kwargs)
+
+    client = _get_openai_client()
+    if client is None:
+        return kwargs
+
+    try:
+        sig = inspect.signature(cls.__init__)
+        params = sig.parameters
+
+        # Selon versions: "client" / "openai_client" / "http_client"
+        if "client" in params:
+            kwargs["client"] = client
+        elif "openai_client" in params:
+            kwargs["openai_client"] = client
+
+        if _OPENAI_HTTPX is not None and "http_client" in params:
+            kwargs["http_client"] = _OPENAI_HTTPX
+
+    except Exception:
+        # Si inspect échoue -> on ne force rien
+        pass
+
+    return kwargs
+
+
+# ───────────────────────────── Embeddings / LLM ─────────────────────────
+def _embeddings():
+    """
+    1) OpenAIEmbeddings si OPENAI_API_KEY est présent et langchain_openai installé
+       -> avec client OpenAI "safe"
+    2) sinon HuggingFaceEmbeddings si dispo
+    3) sinon erreur claire
+    """
+    openai_model = os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
+
+    if OPENAI_API_KEY and OpenAIEmbeddings is not None:
+        base_kwargs = {"model": openai_model, "api_key": OPENAI_API_KEY}
+        kwargs = _inject_client_kwargs(OpenAIEmbeddings, base_kwargs)
+        try:
+            return OpenAIEmbeddings(**kwargs)
+        except Exception as e:
+            # Fallback HF si possible
+            _log(
+                "openai_embeddings_init_failed",
+                {"error": f"{type(e).__name__}: {e}"},
+            )
+
+    HFEmb = _try_import_hf_embeddings()
+    if HFEmb is not None:
+        hf_model = os.getenv("HF_EMBEDDINGS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        return HFEmb(model_name=hf_model)
+
+    raise RuntimeError(
+        "Impossible d'initialiser les embeddings.\n"
+        "- Option A (OpenAI): installe langchain-openai et définis OPENAI_API_KEY\n"
+        "- Option B (HF local): pip install langchain-huggingface sentence-transformers\n"
+        "\nSi tu as l'erreur 'proxies': fixe côté deps: pip install \"httpx==0.27.2\" --force-reinstall"
+    )
+
+
+def _llm():
+    """
+    LLM OpenAI obligatoire pour la génération ici.
+    -> FIX 'proxies' : on injecte un client OpenAI 'safe' si possible.
+    """
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY manquant. Ajoute-le dans ton .env ou dans les Secrets (HF).")
+    if ChatOpenAI is None:
+        raise RuntimeError(
+            "Dépendance manquante: langchain-openai.\n"
+            "Installe: pip install langchain-openai openai"
+        )
+
+    model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+    temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
+
+    base_kwargs = {"model": model, "temperature": temperature, "api_key": OPENAI_API_KEY}
+    kwargs = _inject_client_kwargs(ChatOpenAI, base_kwargs)
+
+    try:
+        return ChatOpenAI(**kwargs)
+    except Exception as e:
+        # Message ultra clair + actionnable
+        detail = f"{type(e).__name__}: {e}"
+        client_err = _OPENAI_CLIENT_ERR
+        raise RuntimeError(
+            "Échec d'initialisation du LLM (ChatOpenAI).\n"
+            f"- Erreur: {detail}\n"
+            f"- OpenAI client err: {client_err or '(none)'}\n"
+            "\n✅ Fix recommandé (Windows):\n"
+            "1) pip install \"httpx==0.27.2\" --force-reinstall\n"
+            "2) (option) pip install -U openai langchain-openai\n"
+        ) from e
+
+
 # ───────────────────────────── Load corpus ─────────────────────────────
-def _load_pdf_docs(pdf_path: Path) -> List[Document]:
-    if not pdf_path.exists():
-        return []
-    loader = PyPDFLoader(str(pdf_path))
-    docs = loader.load()  # Document par page
-    for d in docs:
-        md = d.metadata or {}
-        md["type"] = "pdf"
-        md["source"] = str(pdf_path)
-        d.metadata = md
-    return docs
-
-
 def _load_txt_docs(docs_dir: Path) -> List[Document]:
     if not docs_dir.exists():
         return []
     docs: List[Document] = []
     for p in sorted(docs_dir.glob("*.txt")):
-        txt = p.read_text(encoding="utf-8", errors="ignore").strip()
+        try:
+            txt = p.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            continue
         if not txt:
             continue
         docs.append(Document(page_content=txt, metadata={"type": "txt", "source": str(p)}))
     return docs
 
 
+def _load_pdf_docs(pdf_path: Path) -> List[Document]:
+    PyPDFLoader = _try_import_pypdf_loader()
+    if PyPDFLoader is None:
+        _log("pdf_loader_missing", {"pdf_path": str(pdf_path)})
+        return []
+    if not pdf_path.exists():
+        return []
+    try:
+        loader = PyPDFLoader(str(pdf_path))
+        docs = loader.load()
+        for d in docs:
+            md = d.metadata or {}
+            md["type"] = "pdf"
+            md["source"] = str(pdf_path)
+            d.metadata = md
+        return docs
+    except Exception as e:
+        _log("pdf_load_failed", {"pdf_path": str(pdf_path), "error": f"{type(e).__name__}: {e}"})
+        return []
+
+
 def _load_excel_as_docs(xlsx_path: Path, default_type: str) -> List[Document]:
+    pd = _try_import_pandas()
+    if pd is None:
+        _log("pandas_missing_skip_xlsx", {"xlsx_path": str(xlsx_path)})
+        return []
     if not xlsx_path.exists():
         return []
-    xls = pd.ExcelFile(xlsx_path)
-    sheet = xls.sheet_names[0]
-    df = pd.read_excel(xls, sheet_name=sheet)
+    try:
+        xls = pd.ExcelFile(xlsx_path)
+        sheet = xls.sheet_names[0]
+        df = pd.read_excel(xls, sheet_name=sheet)
+    except Exception as e:
+        _log("xlsx_load_failed", {"xlsx_path": str(xlsx_path), "error": f"{type(e).__name__}: {e}"})
+        return []
 
     docs: List[Document] = []
     for idx, row in df.iterrows():
         parts: List[str] = []
         for col in df.columns:
             val = row[col]
-            if pd.isna(val) or str(val).strip() == "":
+            try:
+                if pd.isna(val) or str(val).strip() == "":
+                    continue
+            except Exception:
                 continue
             parts.append(f"{col}: {val}")
         content = "\n".join(parts).strip()
@@ -218,7 +424,6 @@ def _load_excel_as_docs(xlsx_path: Path, default_type: str) -> List[Document]:
 
 
 def _load_corpus_docs() -> List[Document]:
-    # TXT recommandé HF → on le met en premier volontairement
     txt_docs = _load_txt_docs(DOCS_DIR)
     pdf_docs = _load_pdf_docs(PDF_PATH)
     err_docs = _load_excel_as_docs(ERREURS_XLSX, default_type="erreurs")
@@ -246,9 +451,10 @@ def _build_vectorstore() -> FAISS:
     docs = _load_corpus_docs()
     if not docs:
         raise RuntimeError(
-            "❌ Aucun corpus trouvé.\n"
-            f"- Attendu au moins un .txt dans: {DOCS_DIR}\n"
+            "❌ Aucun document trouvé pour le corpus.\n"
+            f"- Mets au moins un .txt dans: {DOCS_DIR}\n"
             f"- PDF optionnel: {PDF_PATH}\n"
+            f"- XLSX optionnels: {ERREURS_XLSX} / {REMED_XLSX}\n"
         )
 
     t1 = time.perf_counter()
@@ -263,11 +469,13 @@ def _build_vectorstore() -> FAISS:
     store.save_local(str(FAISS_DIR), index_name=FAISS_INDEX_NAME)
 
     fp = _corpus_fingerprint()
-    FINGERPRINT_PATH.write_text(fp, encoding="utf-8")
+    try:
+        FINGERPRINT_PATH.write_text(fp, encoding="utf-8")
+    except Exception:
+        pass
 
     t4 = time.perf_counter()
 
-    # Logs build (une fois, très utile pour Chapitre 5)
     _log(
         "vectorstore_build",
         {
@@ -276,7 +484,7 @@ def _build_vectorstore() -> FAISS:
             "n_chunks": len(chunks),
             "chunk_size": int(os.getenv("CHUNK_SIZE", "650")),
             "chunk_overlap": int(os.getenv("CHUNK_OVERLAP", "110")),
-            "embed_model": os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small"),
+            "embed_backend": "openai" if (OPENAI_API_KEY and OpenAIEmbeddings is not None) else "huggingface",
             "faiss_dir": str(FAISS_DIR),
             "t_load_docs_s": round(t1 - t0, 3),
             "t_chunking_s": round(t2 - t1, 3),
@@ -298,7 +506,10 @@ def _load_or_create_vectorstore() -> FAISS:
     fp_now = _corpus_fingerprint()
     fp_old = None
     if FINGERPRINT_PATH.exists():
-        fp_old = FINGERPRINT_PATH.read_text(encoding="utf-8", errors="ignore").strip()
+        try:
+            fp_old = FINGERPRINT_PATH.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            fp_old = None
 
     should_rebuild = (fp_old != fp_now)
 
@@ -314,30 +525,20 @@ def _load_or_create_vectorstore() -> FAISS:
             t1 = time.perf_counter()
             _log(
                 "vectorstore_load",
-                {
-                    "corpus_fp": fp_now,
-                    "faiss_dir": str(FAISS_DIR),
-                    "t_load_s": round(t1 - t0, 3),
-                    **_corpus_stats(),
-                },
+                {"corpus_fp": fp_now, "faiss_dir": str(FAISS_DIR), "t_load_s": round(t1 - t0, 3), **_corpus_stats()},
             )
             return _VECTORSTORE
         except Exception as e:
-            # si chargement impossible → rebuild
             _log(
                 "vectorstore_load_failed",
-                {
-                    "corpus_fp": fp_now,
-                    "faiss_dir": str(FAISS_DIR),
-                    "error": f"{type(e).__name__}: {e}",
-                },
+                {"corpus_fp": fp_now, "faiss_dir": str(FAISS_DIR), "error": f"{type(e).__name__}: {e}"},
             )
 
     _VECTORSTORE = _build_vectorstore()
     return _VECTORSTORE
 
 
-# ───────────────────────────── RAG prompt ──────────────────────────────
+# ───────────────────────────── Prompt / Context ─────────────────────────
 _RAG_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
@@ -358,6 +559,11 @@ _RAG_PROMPT = ChatPromptTemplate.from_messages(
         ("human", "Question: {question}\n\nCONTEXTE:\n{context}"),
     ]
 )
+
+
+def _rank_docs(docs: List[Document]) -> List[Document]:
+    order = {"txt": 0, "pdf": 1, "excel": 2}
+    return sorted(docs, key=lambda d: order.get((d.metadata or {}).get("type", "unknown"), 9))
 
 
 def _format_context(docs: List[Document]) -> str:
@@ -385,14 +591,7 @@ def _format_context(docs: List[Document]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
-def _rank_docs(docs: List[Document]) -> List[Document]:
-    # priorité: txt > pdf > excel
-    order = {"txt": 0, "pdf": 1, "excel": 2}
-    return sorted(docs, key=lambda d: order.get((d.metadata or {}).get("type", "unknown"), 9))
-
-
 def _retriever_params() -> Dict[str, Any]:
-    # On centralise pour log + stabilité
     return {
         "search_type": "mmr",
         "k": int(os.getenv("RETRIEVER_K", "5")),
@@ -402,7 +601,6 @@ def _retriever_params() -> Dict[str, Any]:
 
 
 def _context_stats(docs: List[Document], context: str) -> Dict[str, Any]:
-    # Evite tokenization (plus lourd) -> stats simples
     by_type = {"txt": 0, "pdf": 0, "excel": 0, "other": 0}
     for d in docs:
         t = (d.metadata or {}).get("type", "other")
@@ -418,20 +616,15 @@ def _context_stats(docs: List[Document], context: str) -> Dict[str, Any]:
     }
 
 
+# ───────────────────────────── Public API ──────────────────────────────
 def rag_chain(inputs: Dict[str, Any]) -> Dict[str, Any]:
     """
     rag_chain({"question": "..."}) -> {"answer": str, "source_documents": List[Document]}
-
-    Logs "Chapitre 5" (si PERF_LOG=1):
-      - vectorstore_load/build (fp, tailles, chunks)
-      - rag_perf (latences : load_store, retrieval, llm, total)
-      - rag_config (top-k, fetch_k, mmr lambda, modèles)
     """
     question = (inputs.get("question") or "").strip()
     if not question:
         return {"answer": "Je ne sais pas.", "source_documents": []}
 
-    # ------------------ PERF timers (exploitable jury DS) ------------------
     t0 = time.perf_counter()
 
     store = _load_or_create_vectorstore()
@@ -440,11 +633,7 @@ def rag_chain(inputs: Dict[str, Any]) -> Dict[str, Any]:
     rp = _retriever_params()
     retriever = store.as_retriever(
         search_type=rp["search_type"],
-        search_kwargs={
-            "k": rp["k"],
-            "fetch_k": rp["fetch_k"],
-            "lambda_mult": rp["lambda_mult"],
-        },
+        search_kwargs={"k": rp["k"], "fetch_k": rp["fetch_k"], "lambda_mult": rp["lambda_mult"]},
     )
 
     source_docs = retriever.invoke(question)
@@ -454,48 +643,40 @@ def rag_chain(inputs: Dict[str, Any]) -> Dict[str, Any]:
     context = _format_context(source_docs)
 
     llm = _llm()
-    prompt = _RAG_PROMPT.format_messages(question=question, context=context)
+    messages = _RAG_PROMPT.format_messages(question=question, context=context)
 
-    msg = llm.invoke(prompt)
+    msg = llm.invoke(messages)
     t3 = time.perf_counter()
 
     answer = (getattr(msg, "content", None) or "").strip() or "Je ne sais pas."
 
-    # ------------------ Logs (propres, stables, greppables) ----------------
-    # NB: on ne log pas la question complète (risque données élèves),
-    # juste longueur + hash court (pour regrouper sans exposer contenu)
     q_hash = hashlib.sha1(question.encode("utf-8", errors="ignore")).hexdigest()[:10]
+    cfg = {
+        "corpus_fp": _corpus_fingerprint(),
+        "embed_backend": "openai" if (OPENAI_API_KEY and OpenAIEmbeddings is not None) else "huggingface",
+        "chat_model": os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+        "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0")),
+        "retriever": rp["search_type"],
+        "k": rp["k"],
+        "fetch_k": rp["fetch_k"],
+        "lambda_mult": rp["lambda_mult"],
+        "chunk_size": int(os.getenv("CHUNK_SIZE", "650")),
+        "chunk_overlap": int(os.getenv("CHUNK_OVERLAP", "110")),
+    }
+    ctx_stats = _context_stats(source_docs, context)
 
-    if PERF_LOG:
-        cfg = {
-            "corpus_fp": _corpus_fingerprint(),
-            "embed_model": os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small"),
-            "chat_model": os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-            "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0")),
-            "retriever": rp["search_type"],
-            "k": rp["k"],
-            "fetch_k": rp["fetch_k"],
-            "lambda_mult": rp["lambda_mult"],
-            "chunk_size": int(os.getenv("CHUNK_SIZE", "650")),
-            "chunk_overlap": int(os.getenv("CHUNK_OVERLAP", "110")),
-        }
-        ctx_stats = _context_stats(source_docs, context)
-
-        # log config 1 fois par appel (utile pour debug/rapport)
-        _log("rag_config", {"q_hash": q_hash, "q_len": len(question), **cfg, **ctx_stats})
-
-        # log perf
-        _log(
-            "rag_perf",
-            {
-                "q_hash": q_hash,
-                "q_len": len(question),
-                "t_load_store_s": round(t1 - t0, 3),
-                "t_retrieval_s": round(t2 - t1, 3),
-                "t_llm_s": round(t3 - t2, 3),
-                "t_total_s": round(t3 - t0, 3),
-                "n_sources": len(source_docs),
-            },
-        )
+    _log("rag_config", {"q_hash": q_hash, "q_len": len(question), **cfg, **ctx_stats})
+    _log(
+        "rag_perf",
+        {
+            "q_hash": q_hash,
+            "q_len": len(question),
+            "t_load_store_s": round(t1 - t0, 3),
+            "t_retrieval_s": round(t2 - t1, 3),
+            "t_llm_s": round(t3 - t2, 3),
+            "t_total_s": round(t3 - t0, 3),
+            "n_sources": len(source_docs),
+        },
+    )
 
     return {"answer": answer, "source_documents": source_docs}
