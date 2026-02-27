@@ -1,0 +1,85 @@
+# ======================
+# Secrets
+# ======================
+.env
+.env.*
+
+# ======================
+# Python
+# ======================
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+venv/
+
+# ======================
+# Chainlit
+# ======================
+.chainlit/
+.files/
+
+# ======================
+# VSCode / OS
+# ======================
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ======================
+# Vectorstores / FAISS
+# ======================
+vectorstore/
+faiss_store/
+*.faiss
+*.index
+*.meta.json
+
+# ======================
+# Exports générés
+# ======================
+exports/
+
+# ======================
+# Données (élèves / corpus)
+# On versionne uniquement:
+# - le corpus TXT (démo HF)
+# - un sample anonymisé
+# - des .gitkeep si besoin
+# ======================
+# Ignore data by default
+
+data/**
+
+# Keep structure + demo files
+!data/Corpus/
+!data/Corpus/corpus_fractions_5e.txt
+!data/Corpus/.gitkeep
+!data/**/.gitkeep
+!data/**/README.md
+
+# Corpus : on garde les .txt, on ignore les .pdf
+!data/Corpus/*.txt
+data/Corpus/*.pdf
+
+# Students : on garde sample, on ignore le vrai fichier
+
+data/Students/responses.csv
+!data/Students/
+!data/Students/responses.csv
+!data/Students/sample_responses.csv
+!data/Students/.gitkeep
+
+# ======================
+# Corrigés / docs lourdes
+# ======================
+answer_key.json
+*.docx
+_local_backup/
+
+only)*
+.env
+faiss_store/
+exports/
+__pycache__/
+*.pyc

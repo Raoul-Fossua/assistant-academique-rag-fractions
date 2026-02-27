@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.faiss_store/
+faiss_store/
+exports/
+data/Students/
+data/Corpus/Cours_Fractions_5e.pdf
+answer_key.json
+.git/
+.chainlit/
+.files/
